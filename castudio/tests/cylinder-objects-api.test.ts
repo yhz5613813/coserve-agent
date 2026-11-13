@@ -5,7 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { createHash } from 'node:crypto';
 import express from 'express';
-import { Store, jsonWrite } from '../server/storage.js';
+import { Store, HttpError, jsonWrite } from '../server/storage.js';
 import { History } from '../server/history.js';
 import { cylinderObjectsRoutes } from '../server/cylinder-objects.js';
 import type { runProcess } from '../server/process.js';
@@ -66,7 +66,16 @@ async function fixture() {
   const request = (suffix = '', method = 'GET', body?: unknown) => fetch(url + suffix, { method, headers: { 'Content-Type': 'application/json' }, body: body === undefined ? undefined : JSON.stringify(body) });
   const read = async () => (await request()).json();
   const wait = async () => {
-    for (let n = 0; n < 100; n++) { const current = await read(); if (current.job?.state !== 'running') return current; await new Promise(ok => setTimeout(ok, 10)); }
+    for (let n = 0; n < 100; n++) {
+      const current = await read();
+      if (current.job?.state !== 'running') {
+        // A terminal status can be visible while the worker is persisting it.
+        // Wait for its project lease before admitting the next mutation.
+        try { const release = store.acquire(project.id); release(); return current; }
+        catch (error) { if (!(error instanceof HttpError) || error.status !== 409) throw error; }
+      }
+      await new Promise(ok => setTimeout(ok, 10));
+    }
     throw new Error('Job did not finish');
   };
   const close = async () => { await manager.dispose(); await new Promise<void>(ok => server.close(() => ok())); assert.ok(path.resolve(root).startsWith(path.resolve(os.tmpdir()) + path.sep)); await fs.rm(root, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 }); };
@@ -129,7 +138,7 @@ test('failed CAD verification and failed rendering never replace the successful 
       f.behavior.render = failure; await f.request('/build', 'POST', { revision: 1 });
       const failed = await f.wait(); assert.equal(failed.job.state, 'failed'); assert.deepEqual(failed.published, good.published);
     }
-    f.behavior.render = 'success'; await f.request('/build', 'POST', { revision: 1 });
+    f.behavior.render = 'success'; assert.equal((await f.request('/build', 'POST', { revision: 1 })).status, 202);
     const rendered = await f.wait(); assert.equal(rendered.job.state, 'succeeded', JSON.stringify(rendered.job)); assert.match(rendered.job.log, /Blender CAD/);
   } finally { await f.close(); }
 });

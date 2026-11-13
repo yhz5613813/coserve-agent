@@ -1368,7 +1368,7 @@ describe('WorkspaceBrowser', () => {
     fireEvent.click(screen.getByRole('button', { name: '在“alpha”中新建会话' }))
     expect(b.store.getSnapshot().groupExpansion).toEqual({ alpha: true })
     expect(screen.getByText('alpha-s')).toBeTruthy()
-    expect(startSession).toHaveBeenCalledWith(wid('alpha'))
+    expect(startSession).toHaveBeenCalledWith(wid('alpha'), { fresh: true })
   })
 
   it('auto-expands the Ungrouped bucket for a loose current session; its header has no menu and its ＋ is inert', () => {
@@ -1400,7 +1400,7 @@ describe('WorkspaceBrowser', () => {
     expect(screen.queryByText('b')).toBeNull()
   })
 
-  it('shows only the current blank session as the localized New Session, excluded from search', () => {
+  it('labels the selected blank New Session and keeps prior drafts reachable in flat mode', () => {
     const currentBlank = summary('alpha-blank', 9, { blank: true })
     const staleBlank = summary('beta-blank', 8, { blank: true })
     const sessions = sessionState(
@@ -1417,13 +1417,15 @@ describe('WorkspaceBrowser', () => {
     expect(screen.queryByText('alpha-blank')).toBeNull()
     expect(screen.queryByText('beta-blank')).toBeNull()
 
-    rerender(b, { useSessions: hook({ ...sessions, main: staleBlank.id }) })
+    rerender(b, { useSessions: hook(sessionState([currentBlank, staleBlank], { main: staleBlank.id })) })
     expect(screen.getAllByText('新会话')).toHaveLength(1)
     b.store.actions.setGroupBy('flat')
     rerender(b, {})
     expect(screen.getAllByText('新会话')).toHaveLength(1)
-    // Search excludes blank rows entirely — neither the canonical stored
-    // title nor the localized display label participates in matching.
+    expect(screen.getByText('alpha-blank')).toBeTruthy()
+    fireEvent.click(screen.getByText('alpha-blank'))
+    expect(b.props.open).toHaveBeenCalledWith(currentBlank.id)
+    // The selected placeholder's localized label is not a searchable title.
     fireEvent.change(screen.getByPlaceholderText('搜索会话名称'), { target: { value: 'new session' } })
     expect(screen.queryByText('新会话')).toBeNull()
     fireEvent.change(screen.getByPlaceholderText('搜索会话名称'), { target: { value: '新会话' } })
@@ -2725,7 +2727,7 @@ describe('Workspace tree grouping', () => {
     fireEvent.click(screen.getByText('Child'))
     expect(within(section('Child')).getByText('child-session')).toBeTruthy()
     fireEvent.click(screen.getByRole('button', { name: '在“Projects”中新建会话' }))
-    expect(b.props.startSession).toHaveBeenCalledWith(root.workspaceId)
+    expect(b.props.startSession).toHaveBeenCalledWith(root.workspaceId, { fresh: true })
     rerender(b, { useWorkspaces: hook(workspaceState([child, root])) })
     expect(screen.queryByText('Team')).toBeNull()
     expect(within(section('Projects')).getByText('Child')).toBeTruthy()

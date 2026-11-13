@@ -50,7 +50,9 @@ export class Builds {
       run.state = 'interrupted'; run.error = '服务在构建期间中断；原项目未被构建产物覆盖，请重新构建'; run.finishedAt = new Date().toISOString(); await this.persist(project.id, run);
     }
   }
-  async start(project: string, source: unknown, expectedSource: unknown, expectedParameters?: unknown) {
+  /** Omitted engine preserves the configured CAD runtime; gmsh explicitly uses the thermal geometry environment. */
+  async start(project: string, source: unknown, expectedSource: unknown, expectedParameters?: unknown, engine: unknown = 'cadflow') {
+    if (engine !== 'cadflow' && engine !== 'gmsh') throw new HttpError(400, '构建引擎必须为 cadflow 或 gmsh');
     const release = this.store.acquire(project);
     let dispatched = false;
     try {
@@ -62,8 +64,12 @@ export class Builds {
       if (bytes.toString('utf8') !== expectedSource) throw new HttpError(409, '源码已变化，请刷新并保存后构建');
       const parameters = await new Parameters(this.store, this.history).read(project, source);
       if ((expectedParameters ?? null) !== parameters.hash) throw new HttpError(409, '参数已变化，请重新载入参数后构建');
-      const { executable } = await this.runtime.config();
-      const run: BuildRun = { id: randomUUID(), source, sourceHash: digest(bytes), executable, createdAt: new Date().toISOString(), state: 'preparing', log: '', truncated: false, artifacts: [] };
+      const runtime = engine === 'gmsh'
+        ? await jsonRead<{executable?: string}>(path.join(this.store.root, 'thermal-runtime.json'), {})
+        : await this.runtime.config();
+      const executable = runtime.executable;
+      if (typeof executable !== 'string' || !executable || /[\0\r\n]/.test(executable) || (engine === 'gmsh' && !path.isAbsolute(executable))) throw new HttpError(422, '请先配置 Gmsh 热几何 Python 解释器的绝对路径');
+      const run: BuildRun = { id: randomUUID(), source, sourceHash: digest(bytes), executable, engine, createdAt: new Date().toISOString(), state: 'preparing', log: '', truncated: false, artifacts: [] };
       if (parameters.document && parameters.hash) run.parameters = { path: parameters.path, hash: parameters.hash, values: parameters.document.parameters.map(({ name, value, unit }) => ({ name, value, unit })) };
       await this.persist(project, run);
       const controller = new AbortController();
@@ -142,7 +148,7 @@ export class Builds {
         const bytes = await this.file(project, id, artifact.path), file = await safePath(staging, artifact.path, false);
         await fs.mkdir(path.dirname(file), { recursive: true }); await fs.writeFile(file, bytes);
       }
-      await jsonWrite(path.join(staging, 'studio-build-manifest.json'), { id, source: run.source, sourceHash: run.sourceHash, parameters: run.parameters, executable: run.executable, revision: run.revision, createdAt: run.createdAt, artifacts: run.artifacts });
+      await jsonWrite(path.join(staging, 'studio-build-manifest.json'), { id, source: run.source, sourceHash: run.sourceHash, parameters: run.parameters, executable: run.executable, engine: run.engine, revision: run.revision, createdAt: run.createdAt, artifacts: run.artifacts });
       await this.history.snapshot(project, '保存构建产物前');
       await fs.mkdir(path.dirname(target), { recursive: true }); await fs.rename(staging, target);
       run.published = prefix; await this.persist(project, run);

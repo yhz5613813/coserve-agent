@@ -110,3 +110,12 @@ body{background:var(--bg)}button,input,textarea,select{font:inherit}button:hover
   .embedded-selection-hint{display:none}
   .embedded-workspace .cylinder-object-sidebar{width:210px}
 }
+.thermal-panel.has-results>.thermal-results{order:-1}
+.thermal-run-status{display:flex;flex-wrap:wrap;gap:6px 14px;margin:12px 0;align-items:center}
+.thermal-panel .thermal-live-status{margin:12px 0 0;font-variant-numeric:tabular-nums}
+.thermal-panel .thermal-follow{display:flex;flex-direction:row;align-items:center;gap:8px}
+.thermal-panel .thermal-follow input{width:auto}
+.thermal-preview-wait{display:flex;min-height:180px;align-items:center;justify-content:center;color:inherit}
+.thermal-summary{flex-wrap:wrap}
+.dsh-workspace .thermal-panel .thermal-view{background:var(--embed-bg);border-color:var(--embed-border);color:var(--embed-text)}
+.dsh-workspace .thermal-panel .form-error{background:var(--embed-panel);border-color:var(--embed-border);color:var(--embed-text)}

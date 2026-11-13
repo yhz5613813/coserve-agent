@@ -7,7 +7,7 @@ import { Store, jsonRead } from './storage.js';
 const resources = fileURLToPath(new URL('../resources/', import.meta.url));
 const marker = '<!-- coserve-dsh-workspace -->';
 const platformNoteMarker = '<!-- coserve-platform-note -->';
-const agentsBlock = 'This is a CoServe AI CAD project. Before CAD, parametric editing, build or simulation tasks, read .agents/skills/castudio/SKILL.md first, then the relevant bundled engineering skill (cadflow, structural-sim, thermal-sim). Use the configured runtime and existing project services. DSH is the sole conversation and tool-execution harness.';
+const agentsBlock = 'This is a CoServe AI CAD project. Before CAD, parametric editing, build or simulation tasks, read .agents/skills/castudio/SKILL.md first, then the relevant bundled engineering skill (cadflow, structural-sim, thermal-sim, heatsink-optimization). Use the configured runtime and existing project services. DSH is the sole conversation and tool-execution harness.';
 // The bundled upstream cadflow skill documents PyPI installs for Linux/macOS;
 // they cannot run here. Windows parametric CAD instead uses the official
 // cadflow wheel CAStudio ships — native cadflow_core backend + OCCT — already
@@ -21,7 +21,7 @@ export async function prepareDshWorkspace(store: Store, id: string) {
   const workspacePath = store.workspace(id);
   const skillRoot = path.join(workspacePath, '.agents', 'skills');
   await fs.mkdir(skillRoot, { recursive: true });
-  for (const name of ['cadflow', 'thermal-sim', 'structural-sim']) {
+  for (const name of ['cadflow', 'thermal-sim', 'structural-sim', 'heatsink-optimization']) {
     const destination = path.join(skillRoot, name);
     try { await fs.access(destination); }
     catch (error) {
@@ -71,9 +71,43 @@ Parametric CAD Python: ${parametric.python || 'not configured; check GET /api/pa
 Plain-build Python: ${runtime.executable || 'not configured; inspect GET /api/runtime'}
 Thermal Python: ${thermal.executable || 'not configured; inspect GET /api/thermal/runtime'}
 
-## Geometry, colour and parameter edits — parametric code API
+## Thermal analysis with live results
 
-Every change to a parametric part's geometry, dimensions, colour or material goes through the project's parametric editor, which executes cadflow notebook cells. Work in this order:
+To show live temperatures in the right workbench, submit the published project STEP/STL through \`POST ${api}/thermal\` with \`{source,units,config,expectedHash}\`. Read the thermal-sim schema and inspect the actual thermal surface before choosing the case. DSH does not hold the legacy Pi editing lock: poll \`GET ${api}/thermal/<run-id>\` until succeeded, failed, cancelled or interrupted, then inspect the actual result and errors. Starting a job is not completion. Do not edit geometry during calculation. Switch the workbench to the thermal workspace using cad_workbench if a view is connected; an absent viewport does not prevent calculation. The right panel follows real saved temperature frames and curves. Standalone CLI jobs are useful for inspecting geometry and schema; the workbench tracks jobs submitted through its thermal API.
+The thermal workbench also has a visual case editor. Preserve its separate case.editor metadata and advanced physics fields when editing saved cases. Read \`GET /api/thermal/schema\`, prepare \`POST ${api}/thermal/inspections\`, then use the returned thermal surface and selection resolver instead of CAD viewport face numbers. Rectangle patches use SI local axes/dimensions and bind source SHA plus thermal surface hash; pass inspectionId and surfaceHash when reusing these selections. Reconfirm selections after geometry changes. Material presets and trial values are examples requiring physical confirmation.
+
+## Simulation-driven heatsink optimization
+
+For autonomous heatsink redesign, read \`.agents/skills/heatsink-optimization/SKILL.md\` and use the successful thermal result's automatic optimization action or the API below. The task service freezes physics, checks geometry, rebinds selections and controls GPU solves. Its design children receive the packaged skill automatically in each logged prompt. Project-local skill edits support ordinary design conversations; they do not override the packaged instructions used by autonomous tasks.
+
+## Complete design → simulation → redesign → delivery
+
+Use this continuation when the user asks for the complete loop or autonomous feedback-driven redesign and final export. A request for only CAD or a single simulation does not authorize optimization. First finish the Gmsh build, publication and baseline thermal workflow below, using the user's physical conditions (or clearly identified illustrative assumptions already accepted). Do not choose a sequence of candidate dimensions on the user's behalf; the optimization controller and design children own those iterations.
+
+1. Read \`GET ${service}/api/optimizations/driver\` and \`GET ${api}/optimizations\`. Reuse an existing active task for the same baseline instead of starting duplicates. If the DSH driver is unavailable, report that the desktop host must be running; never substitute invented optimization results.
+2. Start \`POST ${api}/optimizations\` with \`{baselineRunId:<successful baseline run>,policy:{}}\`. Empty policy uses the visible defaults (6 candidate attempts, 30 minutes including verification, mass ≤105% of baseline). Only override policy when the user provided different constraints. Save the returned task id and sourceProjectId in \`workflow-result.json\` so a later turn can continue it.
+3. Poll \`GET ${api}/optimizations/<task>\` at bounded intervals. The host continues after a workbench view closes or an individual design child ends. Terminal phases are completed, no_improvement, cancelled, failed, interrupted, unverified. Do not cancel or restart a task merely because a shell polling interval ended. Resume an interrupted task only when continuation is requested and the service's checks permit it. Honor a user's stop request through \`POST .../<task>/cancel\`.
+4. After the task is terminal and its children have stopped, \`POST ${api}/optimizations/<task>/deliveries\` with \`{}\`. A 409 while children are stopping requires waiting for the actual stop before retrying. Other errors must be reported with their cause, not bypassed by copying unchecked workspace files. The server assembles immutable source snapshots, STEP files, baseline and candidate results, original solver PDFs, raw fields, comparison reports and hashes. \`GET .../<task>/deliveries\` recovers previous completed exports.
+5. Use the returned delivery id to provide \`.../<task>/deliveries/<delivery>/file\` (complete ZIP) and \`.../<task>/deliveries/<delivery>/view/reports/overview.html\` (report). To save the ZIP locally, download into the user's chosen output directory and verify its SHA-256 against \`archive.sha256\`. Save the delivery metadata and download links in \`workflow-delivery.json\`. Inspect \`selected.kind\`: verified_candidate is eligible as the final redesign; baseline means retain the original recommendation and label the candidates unverified or without significant improvement. Never claim a failed/interrupted loop produced a validated improvement.
+
+Report separately: whether CAD construction and GPU solves completed; whether feedback produced valid alternative designs; whether paired fine-mesh verification confirmed cooling; and where the complete design/report package can be downloaded. Editable design means Gmsh Python source plus STEP, not a proprietary CAD feature tree or production tolerance drawings. Actual manufacturing and airflow claims need their own evidence. The existing “将结果加入设计对话” action remains an unsent draft and must not be described as automatic execution.
+
+## Automatic new solid design through Gmsh/OpenCASCADE
+
+For a new solid thermal design, or edits to an existing Gmsh Python source, use the explicit Gmsh build engine below. This path uses the installed Gmsh/OpenCASCADE geometry library from Thermal Python and supports automatic publication. It does not require the CadFlow notebook. Keep an existing CadFlow notebook on its own parametric path unless the user explicitly requests conversion. Do not change Windows application control or install substitute DLLs. State which geometry engine was used. If the requested geometry is unsupported, report that limitation rather than replacing it with a simpler shape.
+
+1. Write a Python source inside this project's workspace using \`import gmsh\`, \`gmsh.initialize(interruptible=False)\`, \`gmsh.model.occ\` solid operations, \`synchronize()\`, and \`finalize()\` in a finally block. Use millimetres consistently for CAD; thermal dimensions use metres. Create real geometry from the requested dimensions, including holes and other features. Export a STEP with \`gmsh.write('model.step')\`. STEP itself is supported by the viewer.
+2. Validate the actual solid count, bounding box and volume using \`getEntities(3)\`, \`getBoundingBox\`, and \`occ.getMass\`. Clear and reopen the exported STEP using \`occ.importShapes\` and recheck the measurements. Save \`geometry-check.json\` with engine, units, dimensions, measured values and checks; fail the build if they disagree. No placeholder geometry or results.
+3. Submit \`POST ${api}/builds\` with \`{source:'design.py',expectedSource:<exact saved text>,engine: 'gmsh'}\`. If a parameter sidecar exists, obtain its hash from \`GET ${api}/parameters?source=design.py\` and pass expectedParameters. This freezes the sources and uses the configured Thermal Python; the default omitted engine still uses the plain CAD interpreter.
+4. Poll \`GET ${api}/builds/<id>\` to a terminal state and inspect log/artifacts. After success, \`POST ${api}/builds/<id>/publish\` with an empty object. This verifies the artifact hashes and returns \`{path:'builds/<id>'}\`. The thermal source is that returned path plus the exported STEP filename. Do not use the source workspace's stale or unpublished STEP. Publication here needs no manual click; the notebook's separate editor-publish guard remains intact.
+5. Read the thermal-sim skill and \`GET ${service}/api/thermal/schema\`; inspect \`POST ${api}/thermal/inspections\` with \`{source,units:'mm'}\`, poll its GET route to succeeded, and read its \`/surface\`. Use the actual thermal selectors, not CAD preview face IDs. Read schema/reference files before choosing fields. Save \`PUT ${api}/thermal/case\` with the source, units and config; POST \`/thermal\` with the same fields plus inspectionId and surfaceHash from the inspection. The server validates and freezes the actual geometry hash. Device is configured by the host; after success verify \`result.backend.device\` is cuda if GPU was requested.
+6. Poll until completion and read \`result\`, \`sourceHash\`, warnings and report files. Save the actual response as \`workflow-result.json\` in the project. Explain geometry checks, solver/device, frame count and temperature extrema from the saved result. Preserve prior runs. Never end after merely scheduling a requested complete workflow, and never manufacture missing physical conditions; ask only for conditions that alter the problem.
+
+On Windows the shell may be cmd.exe. Use a saved Python script and the absolute Thermal Python executable for JSON HTTP requests (httpx with trust_env=False), rather than shell-dependent heredocs or guessed system Python. Do not read or print credentials. Inspect installed gmsh function help for uncertain geometry operations.
+
+## CadFlow notebook geometry, colour and parameter edits — parametric code API
+
+Changes to a CadFlow notebook part's geometry, dimensions, colour or material go through the project's parametric editor, which executes cadflow notebook cells. Work in this order:
 
 1. \`GET ${service}/api/parametric/runtime\` — when \`configured\` is \`false\` the optional parametric CAD environment is not installed: tell the user and give them the install command under "Installing the CAD environment" below; do not substitute another engine.
 2. \`GET ${api}/parametric\` — reports whether the parametric notebook exists (\`exists\`) and whether its worker is running (\`running\`, \`url\`).
@@ -113,12 +147,12 @@ Viewport selections inserted in the conversation are preview context. Only cadFa
 
 ## Other project services
 
-- Plain (non-parametric) builds use the Python configured at \`GET /api/runtime\`; the parametric editor's environment does not replace it.
+- Plain builds with omitted engine use the Python configured at \`GET /api/runtime\`; explicit \`engine: 'gmsh'\` uses the absolute executable from \`GET /api/thermal/runtime\`. Both use the same source snapshots, artifact verification and publish API.
 - Structural simulation: read \`.agents/skills/structural-sim/SKILL.md\` and inspect \`GET ${api}/structural\`. DSH holds no legacy Pi project lock — use the ordinary calculation endpoint, not \`/structural/queue\`.
 - Thermal simulation: read \`.agents/skills/thermal-sim/SKILL.md\`; its runtime is configured at \`GET /api/thermal/runtime\`.
 - Model files, build history, measurements and reviews use the project API under \`${api}\`.
 
-The bundled \`cadflow\` skill documents the CadFlow Python modelling API. The parametric editor runs the official CadFlow engine — the native \`cadflow_core\` C++ backend with OCCT 7.9.3 on Windows — so cells can use native \`cad.Model()\` features as well as the recorded-graph \`make_*_r*\` operators for parts and materials. Geometry, colour and material edits still go through the parametric code API above; publish remains a user action in the modelling panel.
+The bundled \`cadflow\` skill documents the CadFlow Python modelling API. The parametric editor runs the official CadFlow engine — the native \`cadflow_core\` C++ backend with OCCT 7.9.3 on Windows — so cells can use native \`cad.Model()\` features as well as the recorded-graph \`make_*_r*\` operators for parts and materials. CadFlow notebook edits use the parametric code API above; their publish remains a user action in the modelling panel. This restriction does not apply to the explicit Gmsh plain-build workflow.
 
 Keep generated files in this project. Export STEP plus GLB or STL for preview. Never report a model or solver result before checking the actual files and output.
 `;

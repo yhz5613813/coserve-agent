@@ -694,6 +694,42 @@ describe('UiWorkspaceService', () => {
     await vi.waitFor(() => { expect(b.sessions.retain).toHaveBeenCalledWith(sid('blank'), expect.anything()) })
   })
 
+  it('opens a distinct empty conversation for every explicit fresh Session action', async () => {
+    const saved = persistSelection({})
+    const b = bench({
+      sessions: sessionState([summary('draft', { blank: true, cwd: '/w/a' })], 'pending'),
+      workspaces: workspaceState([workspace('a', [sid('draft')])]),
+    })
+    let created = 0
+    b.sessions.create.mockImplementation(async options => options?.sessionId ?? sid(`fresh-${++created}`))
+    b.uiWorkspace.openSession(sid('draft'))
+    b.uiWorkspace.startSession(wid('a'), { fresh: true })
+    await vi.waitFor(() => { expect(JSON.parse(saved.get('dsh.sessions.current')!).sessionId).toBe('fresh-1') })
+    b.uiWorkspace.startSession(wid('a'), { fresh: true })
+    await vi.waitFor(() => { expect(JSON.parse(saved.get('dsh.sessions.current')!).sessionId).toBe('fresh-2') })
+    expect(b.sessions.create.mock.calls).toEqual([[{ workspaceId: wid('a') }], [{ workspaceId: wid('a') }]])
+    expect(b.requestDraftInitialization).not.toHaveBeenCalled()
+    expect(b.workspaces.archiveCalls).toEqual([])
+    expect(b.selectPanel).toHaveBeenLastCalledWith(null)
+  })
+
+  it('keeps the latest fresh conversation selected when an earlier creation finishes late', async () => {
+    const saved = persistSelection({})
+    const b = bench({ sessions: sessionState([], 'pending'), workspaces: workspaceState([workspace('a')]) })
+    const first = Promise.withResolvers<SessionId>()
+    const second = Promise.withResolvers<SessionId>()
+    b.sessions.create.mockReturnValueOnce(first.promise).mockReturnValueOnce(second.promise)
+    b.uiWorkspace.startSession(wid('a'), { fresh: true })
+    b.uiWorkspace.startSession(wid('a'), { fresh: true })
+    expect(b.sessions.create).toHaveBeenCalledTimes(2)
+    second.resolve(sid('second'))
+    await vi.waitFor(() => { expect(JSON.parse(saved.get('dsh.sessions.current')!).sessionId).toBe('second') })
+    first.resolve(sid('first'))
+    await setImmediate()
+    expect(JSON.parse(saved.get('dsh.sessions.current')!).sessionId).toBe('second')
+    expect(b.sessions.retained.map(item => item.reference.sessionId)).toEqual([sid('second')])
+  })
+
   it('reuses any blank without a requested preset and only a matching blank with one', async () => {
     const b = bench({
       sessions: sessionState([

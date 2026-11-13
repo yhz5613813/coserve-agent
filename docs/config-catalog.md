@@ -477,7 +477,7 @@ export type Config = LocalConfig
 ## `@deepseek-ai/dsh-castudio-context`
 
 - `inject`: `agents` · `sessionProjections`
-- `source`: [`packages/context/castudio-context/src/index.ts:47`](../packages/context/castudio-context/src/index.ts)
+- `source`: [`packages/context/castudio-context/src/index.ts:48`](../packages/context/castudio-context/src/index.ts)
 
 ```ts config-catalog
 /** CAStudio service scheduling and response bounds. Invalid values fail plugin load. */
@@ -595,6 +595,35 @@ export interface Config {
 }
 ```
 <!-- END GENERATED config-catalog:@deepseek-ai/dsh-client-shortcuts -->
+
+<!-- BEGIN GENERATED config-catalog:@deepseek-ai/dsh-client-ui-castudio -->
+<a id="deepseek-aidsh-client-ui-castudio"></a>
+
+## `@deepseek-ai/dsh-client-ui-castudio`
+
+- `inject`: `sessionController` · `subagents` · `jobs` · `agentPresets`
+- `source`: [`packages/client/ui-castudio/src/index.ts:23`](../packages/client/ui-castudio/src/index.ts)
+
+```ts config-catalog
+/** Deployment-owned local service and scheduling limits. */
+export interface Config {
+  /** Enable the host-owned optimization queue worker. */
+  optimizationEnabled: boolean
+  /** Loopback HTTP origin of the CAStudio task service. */
+  url: string
+  /** Delay in milliseconds between task queue polls. */
+  pollIntervalMs: number
+  /** Maximum milliseconds for one task service request. */
+  requestTimeoutMs: number
+  /** Maximum milliseconds for one model design proposal. */
+  proposalTimeoutMs: number
+  /** Registered preset identifier for restricted design sessions. */
+  agentPreset: string
+  /** Proposal reasoning effort; an empty string inherits the parent setting. */
+  proposalReasoningEffort: string
+}
+```
+<!-- END GENERATED config-catalog:@deepseek-ai/dsh-client-ui-castudio -->
 
 <!-- BEGIN GENERATED config-catalog:@deepseek-ai/dsh-client-ui-plugin-manager -->
 <a id="deepseek-aidsh-client-ui-plugin-manager"></a>
@@ -4953,7 +4982,6 @@ These load from a `cordis.yml` entry with no `config:` block; they declare no co
 | `@deepseek-ai/dsh-client-ui-approval` | — | [`packages/client/ui-approval/src/index.ts`](../packages/client/ui-approval/src/index.ts) |
 | `@deepseek-ai/dsh-client-ui-attachment` | — | [`packages/client/ui-attachment/src/index.ts`](../packages/client/ui-attachment/src/index.ts) |
 | `@deepseek-ai/dsh-client-ui-brand-official` | — | [`packages/client/ui-brand-official/src/index.ts`](../packages/client/ui-brand-official/src/index.ts) |
-| `@deepseek-ai/dsh-client-ui-castudio` | — | [`packages/client/ui-castudio/src/index.ts`](../packages/client/ui-castudio/src/index.ts) |
 | `@deepseek-ai/dsh-client-ui-chat` | — | [`packages/client/ui-chat/src/index.ts`](../packages/client/ui-chat/src/index.ts) |
 | `@deepseek-ai/dsh-client-ui-commands` | — | [`packages/client/ui-commands/src/index.ts`](../packages/client/ui-commands/src/index.ts) |
 | `@deepseek-ai/dsh-client-ui-context-menu` | — | [`packages/client/ui-context-menu/src/index.ts`](../packages/client/ui-context-menu/src/index.ts) |

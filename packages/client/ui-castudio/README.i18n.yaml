@@ -9,8 +9,17 @@
   en: 041276182b8cf868
   zh: bb006aca55c86164
 /cad-workspace-in-the-native-dsh-conversation/summary:
-  en: ac6c1d902f0944de
-  zh: e53b912144c2e86d
+  en: b43d7eaab91e40bf
+  zh: 2e9987232a700ec6
+/cad-workspace-in-the-native-dsh-conversation/table-of-contents:
+  en: e6c024d92c593186
+  zh: 4ee127bd95450c98
+/cad-workspace-in-the-native-dsh-conversation/workspace-behavior:
+  en: 1d6bbed1a1934c98
+  zh: 5c5618a7e368da93
+/cad-workspace-in-the-native-dsh-conversation/simulation-driven-cad-optimization:
+  en: 95183a7645d245af
+  zh: 83e4c2984a06abf9
 /cad-workspace-in-the-native-dsh-conversation/model-experience:
   en: 215e7ba838619b7b
   zh: a311da3843709f90
@@ -20,6 +29,15 @@
 /cad-workspace-in-the-native-dsh-conversation/model-experience/user-prompts/what-the-model-sees:
   en: 11ce6e4093ba6703
   zh: e5daa3e6083eb215
+/cad-workspace-in-the-native-dsh-conversation/model-experience/user-prompts/token-effect:
+  en: 47dd15a14768854a
+  zh: d8e807b04efc9b52
+/cad-workspace-in-the-native-dsh-conversation/model-experience/user-prompts/kv-cache-effect:
+  en: d44c4efa65d13cd0
+  zh: 1924a9f0597fe36f
 /cad-workspace-in-the-native-dsh-conversation/known-limitations-and-deferred-work:
-  en: e8a97a8e20de3728
-  zh: b3566d6f8980cef6
+  en: 7aea040cadca3bdc
+  zh: ce22563bcbdda139
+/cad-workspace-in-the-native-dsh-conversation/known-limitations-and-deferred-work/dev-note:
+  en: 8fe04a21e8ace33c
+  zh: 5a7e6036d1598fc1

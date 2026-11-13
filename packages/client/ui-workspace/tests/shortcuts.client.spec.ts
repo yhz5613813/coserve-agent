@@ -143,7 +143,7 @@ describe('workspace shortcut ownership', () => {
     const consume = vi.fn()
     expect(b.registry.dispatch(key('KeyN'), context, consume).status).toBe('handled')
     b.registry.dispatch(key('KeyN', { repeat: true }), context, consume)
-    expect(b.navigation.startSession).toHaveBeenCalledOnce()
+    expect(b.navigation.startSession).toHaveBeenCalledExactlyOnceWith(undefined, { fresh: true })
     expect(b.registry.dispatch(key('KeyN'), { ...context, modal: 'settings' }, consume).status).toBe('handled')
     expect(b.registry.dispatch(key('KeyN'), { ...context, region: 'terminal' }, consume).status).toBe('handled')
     expect(b.navigation.startSession).toHaveBeenCalledTimes(3)

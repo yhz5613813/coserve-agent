@@ -1,7 +1,7 @@
 /**
  * Derives the workspace browser tree from caller-projected Workspace and
- * Session order. Unassigned Sessions trail under Ungrouped; only the selected
- * blank Session remains visible.
+ * Session order. Unassigned Sessions trail under Ungrouped; earlier unsent
+ * Sessions remain reachable when a fresh conversation is selected.
  */
 import {
   type SessionListState, type SessionSearchResultItem, type SessionSummary,
@@ -221,19 +221,16 @@ export function pinCurrentBlank(
 export type ArchivedFilter = 'default' | 'show' | 'only'
 
 /**
- * Ordinary sessions are visible; among blank sessions, only the current one
- * is visible. Subagent children use their parent header catalog; archived
+ * Ordinary and unsent sessions are visible. Subagent children use their parent header catalog; archived
  * sessions follow the archived filter, while their accounting slots remain
  * either way so unarchiving restores position.
  */
 function sessionVisible(
   session: SessionSummary,
-  current: SessionId | undefined,
   archived: ReadonlySet<SessionId>,
   archivedFilter: ArchivedFilter,
 ): boolean {
   if (session.origin === 'subagent') return false
-  if (session.blank && session.id !== current) return false
   switch (archivedFilter) {
     case 'default':
       return !archived.has(session.id)
@@ -265,12 +262,13 @@ function sectionMembers(
   members: readonly SessionSummary[],
   pinned: ReadonlySet<SessionId>,
   archived: ReadonlySet<SessionId>,
+  current: SessionId | undefined,
 ): SessionSummary[] {
   const placeholders: SessionSummary[] = []
   const leading: SessionSummary[] = []
   const rest: SessionSummary[] = []
   for (const member of members) {
-    if (member.blank) placeholders.push(member)
+    if (member.blank && member.id === current) placeholders.push(member)
     else if (!archived.has(member.id) && pinned.has(member.id)) leading.push(member)
     else rest.push(member)
   }
@@ -278,13 +276,11 @@ function sectionMembers(
 }
 
 /**
- * A blank session is the selected Workspace's provisional New Session row;
- * its canonical title never enters search (blank rows are query-excluded)
- * and the renderer localizes its display label. Unnamed history also yields an
- * empty title for localization and does not match a directory-name title search.
+ * The selected blank is the provisional New Session row. Other unsent Sessions
+ * use their saved title or the same localized unnamed label as ordinary history.
  */
-function sessionTitle(session: SessionSummary): string {
-  return session.blank ? '' : (session.title?.trim() ?? '')
+function sessionTitle(session: SessionSummary, current: SessionId | undefined): string {
+  return session.blank && session.id === current ? '' : (session.title?.trim() ?? '')
 }
 
 /** Build one group without projecting session lineage into presentation. */
@@ -329,7 +325,6 @@ function groupByWorkspace(
   archivedFilter: ArchivedFilter,
   ungroupedOrder: readonly string[] | undefined,
 ): Group[] {
-  const current = mainSessionId(list)
   const groups: Group[] = []
   const accounted = new Set<SessionId>()
   for (const workspace of workspaces) {
@@ -338,7 +333,7 @@ function groupByWorkspace(
       const summary = list.byId[id]
       if (summary === undefined) continue // account may lead the list pull; the row appears when the summary lands
       accounted.add(id)
-      if (!sessionVisible(summary, current, archived, archivedFilter)) continue
+      if (!sessionVisible(summary, archived, archivedFilter)) continue
       members.push(summary)
     }
     // The archived-only view lists archives, not the Workspace inventory, so
@@ -352,7 +347,7 @@ function groupByWorkspace(
   const stray = list.ids
     .map(id => list.byId[id])
     .filter((s): s is SessionSummary =>
-      s !== undefined && !accounted.has(s.id) && sessionVisible(s, current, archived, archivedFilter))
+      s !== undefined && !accounted.has(s.id) && sessionVisible(s, archived, archivedFilter))
   if (stray.length > 0) {
     groups.push(buildGroup(
       UNGROUPED_KEY,
@@ -391,13 +386,14 @@ function sessionNode(
   statuses: SessionStatuses,
   pinned: ReadonlySet<SessionId>,
   archived: ReadonlySet<SessionId>,
+  current: SessionId | undefined,
 ): SessionNode {
   const status = statuses.get(s.id)
   const pendingInteraction = visiblePendingKind(status?.pendingInteraction?.kind)
   return {
     id: s.id,
-    title: sessionTitle(s),
-    blank: s.blank,
+    title: sessionTitle(s, current),
+    blank: s.blank && s.id === current,
     running: status?.running ?? s.running,
     runningSubagentCount: runningChildCount(list, s.id, statuses),
     completed: status?.completionUnread === true,
@@ -414,8 +410,8 @@ function sessionNode(
  *
  * Every group shows, except that the archived-only filter drops groups
  * without visible members; sessions populate under expanded groups with
- * pinned rows leading in the selected local order. Blank sessions are
- * excluded except for the selected provisional New Session row; archived
+ * pinned rows leading in the selected local order. Earlier unsent Sessions remain
+ * visible alongside the selected provisional New Session row; archived
  * sessions keep their slots and appear per the archived filter. Content
  * search lives outside this derivation (see {@link deriveSearchResults}).
  * @param list - sessions list snapshot (`mainView` retention feeds containsCurrent).
@@ -452,8 +448,8 @@ export function deriveGroups(
       expanded,
       containsCurrent: g.key === currentGroup,
       sessions: expanded
-        ? sectionMembers(g.sessions, pinned, archived)
-          .map(session => sessionNode(session, list, statuses, pinned, archived))
+        ? sectionMembers(g.sessions, pinned, archived, current)
+          .map(session => sessionNode(session, list, statuses, pinned, archived, current))
         : [],
     })
   }
@@ -463,7 +459,7 @@ export function deriveGroups(
 /**
  * Select complete flat-list membership, independently of archive visibility.
  * @param list - sessions list snapshot.
- * @returns known ordinary Session ids, including archives and only the current blank.
+ * @returns known ordinary and unsent Session ids, including archives.
  */
 export function sessionMemberIds(list: SessionListState): SessionId[] {
   return visibleSessionIds(list, [], 'show')
@@ -474,7 +470,7 @@ export function sessionMemberIds(list: SessionListState): SessionId[] {
  * @param list - sessions list snapshot.
  * @param archivedSessionIds - registry-global archive set.
  * @param archivedFilter - archived-row visibility choice.
- * @returns known visible Session ids in list order, including ordinary forks and only the current blank.
+ * @returns known visible Session ids in list order, including ordinary forks and unsent Sessions.
  */
 export function visibleSessionIds(
   list: SessionListState,
@@ -482,10 +478,9 @@ export function visibleSessionIds(
   archivedFilter: ArchivedFilter,
 ): SessionId[] {
   const archived = new Set(archivedSessionIds)
-  const current = mainSessionId(list)
   return list.ids.filter((id) => {
     const s = list.byId[id]
-    return s !== undefined && sessionVisible(s, current, archived, archivedFilter)
+    return s !== undefined && sessionVisible(s, archived, archivedFilter)
   })
 }
 
@@ -509,12 +504,12 @@ export function deriveFlat(
   const current = mainSessionId(list)
   const members = sessionIds.flatMap((id) => {
     const session = list.byId[id]
-    return session !== undefined && sessionVisible(session, current, archived, rowState.archivedFilter)
+    return session !== undefined && sessionVisible(session, archived, rowState.archivedFilter)
       ? [session]
       : []
   })
-  return sectionMembers(members, pinned, archived)
-    .map(session => sessionNode(session, list, statuses, pinned, archived))
+  return sectionMembers(members, pinned, archived, current)
+    .map(session => sessionNode(session, list, statuses, pinned, archived, current))
 }
 
 /**
@@ -562,11 +557,11 @@ export function deriveSearchResults(
   const local: SessionSummary[] = []
   for (const id of list.ids) {
     const summary = list.byId[id]
-    // Blank placeholders never match a query (their canonical title displays
+    // The selected blank placeholder never matches a query (its canonical title displays
     // localized, so matching it would tie search to one language).
-    if (summary === undefined || summary.blank || !sessionVisible(summary, current, archived, archivedFilter)) continue
+    if (summary === undefined || (summary.blank && summary.id === current) || !sessionVisible(summary, archived, archivedFilter)) continue
     if (
-      sessionTitle(summary).toLowerCase().includes(q)
+      sessionTitle(summary, current).toLowerCase().includes(q)
       || labelOf(summary).toLowerCase().includes(q)
       || summary.id.toLowerCase().includes(q)
     ) {
@@ -587,7 +582,8 @@ export function deriveSearchResults(
   for (const summary of orderedLocal) include(summary)
   for (const item of content.items) {
     const summary = list.byId[item.sessionId]
-    if (summary !== undefined && !summary.blank && sessionVisible(summary, current, archived, archivedFilter)) include(summary)
+    if (summary !== undefined && !(summary.blank && summary.id === current)
+      && sessionVisible(summary, archived, archivedFilter)) include(summary)
   }
 
   return {
@@ -597,7 +593,7 @@ export function deriveSearchResults(
       const pendingInteraction = visiblePendingKind(status?.pendingInteraction?.kind)
       return {
         id: summary.id,
-        title: sessionTitle(summary),
+        title: sessionTitle(summary, current),
         workspace: labelOf(summary),
         running: status?.running ?? summary.running,
         runningSubagentCount: runningChildCount(list, summary.id, statuses),

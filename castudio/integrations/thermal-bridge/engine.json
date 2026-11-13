@@ -1,0 +1,34 @@
+{
+  "repository": "https://github.com/tianyuzong/ThermoForge-Studio",
+  "commit": "08f0a654e8625199be14c45f2cb0b443b0774cb0",
+  "patchedFiles": [
+    {
+      "path": "thermal_legacy/solver.py",
+      "sha256": "3cfc0d4eab8e792ad12116eef12d20be8ebef54188f287effe351c4ddc5e34b2"
+    },
+    {
+      "path": "thermal_legacy/schemas.py",
+      "sha256": "a9ac648bc707c7035e99f5456481178338a57ac91ebe8c3f2ed2aa518b589578"
+    },
+    {
+      "path": "thermal_legacy/geometry.py",
+      "sha256": "64a03fc6b52ca928f20feb572f2afcb7aca3b5d97731d6ef387f37f33eac4ba9"
+    },
+    {
+      "path": "thermal_legacy/surface_patch.py",
+      "sha256": "cb72ab970b16642de7591d9f6203538a2709496460485add810c1f0a358c7ff2"
+    },
+    {
+      "path": "thermal_legacy/engineering_report.py",
+      "sha256": "18da146c307c338f7df012baec4be1de7ccd98382faae88cc71193ad77083703"
+    },
+    {
+      "path": "thermal_legacy/workflow_report.py",
+      "sha256": "fc7d94d963ca48f991a7d59a54578efb31765201af05d172192a6006aa89c88e"
+    },
+    {
+      "path": "thermal_legacy/runtime.py",
+      "sha256": "f49c512eba1dd5416150b90c17006203954e79a82068b390bf1e119efcb1635a"
+    }
+  ]
+}

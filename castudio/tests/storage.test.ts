@@ -12,7 +12,7 @@ test('CadFlow is bundled and cannot be installed, disabled or removed as an exte
   const { root, cleanup } = await fixture();
   try {
     const paths = await builtInSkillPaths();
-    assert.deepEqual(paths.map(p => path.basename(path.resolve(p))), ['cadflow', 'thermal-sim', 'structural-sim']);
+    assert.deepEqual(paths.map(p => path.basename(path.resolve(p))), ['cadflow', 'thermal-sim', 'structural-sim', 'heatsink-optimization']);
     for (const resource of paths) await fs.access(path.join(resource, 'SKILL.md'));
     assert.match(await fs.readFile(path.join(paths[0], 'SKILL.md'), 'utf8'), /name: cadflow/);
     const manager = new Plugins(root);

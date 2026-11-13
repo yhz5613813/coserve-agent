@@ -34,6 +34,8 @@ interface MainSelection {
 export interface StartSessionOptions extends DraftInitializationOptions {
   /** Agent preset the Session runs; the Host default when omitted. */
   readonly agentPreset?: string
+  /** Create an independent empty Session instead of reopening a Workspace draft. */
+  readonly fresh?: boolean
 }
 
 /** Workspace archive and directory operations consumed by Client UI domains. */
@@ -56,7 +58,7 @@ export interface UiWorkspace {
   openWorkspace(
     workspaceId: WorkspaceId,
     beforeOpen?: (sessionId: SessionId) => void,
-    options?: Pick<StartSessionOptions, 'agentPreset'>,
+    options?: Pick<StartSessionOptions, 'agentPreset' | 'fresh'>,
   ): Promise<void>
   /**
    * Fork a Session without changing the current selection.
@@ -81,11 +83,10 @@ export interface UiWorkspace {
    */
   connectWorkspace(workspaceId: WorkspaceId, options?: Pick<StartSessionOptions, 'agentPreset'>): Promise<SessionId>
   /**
-   * Open the Workspace blank `connectWorkspace` resolves, so New Session returns to that blank's
-   * unsent draft. A creation the Host refuses is shown through the Workspace notice and leaves the
-   * selection as it was.
+   * Open a fresh Session when requested, otherwise resolve the Workspace's reusable draft.
+   * A creation the Host refuses is shown through the Workspace notice and leaves selection unchanged.
    * @param workspaceId - explicit target; absent inherits the current or most recent Workspace.
-   * @param options - initial content, the blank's preset, and `whenDraftExists`, which decides
+   * @param options - fresh identity, initial content, the blank's preset, and `whenDraftExists`, which decides
    * whether existing text or attachments are kept, replaced, or followed by the prompt.
    */
   startSession(workspaceId?: WorkspaceId, options?: StartSessionOptions): void
@@ -297,20 +298,24 @@ class UiWorkspaceService extends Service implements UiWorkspace {
   openWorkspace(
     workspaceId: WorkspaceId,
     beforeOpen?: (sessionId: SessionId) => void,
-    options: Pick<StartSessionOptions, 'agentPreset'> = {},
+    options: Pick<StartSessionOptions, 'agentPreset' | 'fresh'> = {},
   ): Promise<void> {
-    return this.openWorkspaceSession(workspaceId, beforeOpen, options)
+    const { fresh = false, ...reuse } = options
+    return this.openWorkspaceSession(workspaceId, beforeOpen, reuse, fresh)
   }
 
   private async openWorkspaceSession(
     workspaceId: WorkspaceId,
     beforeOpen: ((sessionId: SessionId) => void) | undefined,
     reuse: Pick<StartSessionOptions, 'agentPreset'>,
+    fresh = false,
   ): Promise<void> {
     const navigation = AbortSignal.any([this.ctx.layout.beginNavigation(), this.lifetime.signal])
     let sessionId: SessionId
     try {
-      sessionId = await this.connectBlank(workspaceId, reuse)
+      sessionId = fresh
+        ? await this.createNamed({ workspaceId, ...reuse })
+        : await this.connectBlank(workspaceId, reuse)
     } catch (error: unknown) {
       // Reported here, not in connectWorkspace: startup restoration calls that
       // directly and stays console-only.
@@ -335,7 +340,7 @@ class UiWorkspaceService extends Service implements UiWorkspace {
   }
 
   startSession(workspaceId?: WorkspaceId, options?: StartSessionOptions): void {
-    const { agentPreset, ...draft } = options ?? {}
+    const { agentPreset, fresh = false, ...draft } = options ?? {}
     const draftOptions = options === undefined ? undefined : draft
     const initializeDraft = draftOptions !== undefined && (draftOptions.prompt !== undefined
       || (draftOptions.whenDraftExists ?? (draftOptions.clearPreviousDraft === true ? 'replace' : 'keep')) === 'replace')
@@ -361,7 +366,7 @@ class UiWorkspaceService extends Service implements UiWorkspace {
       const binding = this.sessions.binding(id)
       if (binding === undefined) this.draftPreparationFailed()
       this.prepareDraft(binding, draftOptions)
-    } : undefined, agentPreset === undefined ? {} : { agentPreset })
+    } : undefined, { ...(agentPreset === undefined ? {} : { agentPreset }), ...(fresh ? { fresh } : {}) })
     void opening.catch(
       (reason: unknown) => { console.warn('new session failed:', reason) },
     )

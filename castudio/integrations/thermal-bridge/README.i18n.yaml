@@ -1,0 +1,19 @@
+# Bilingual-pair consistency record for README.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write castudio/integrations/thermal-bridge/README.md
+/thermoforge-bridge-for-castudio:
+  en: efe6235dfcf932aa
+  zh: 2fe18c95bcc5e195
+/thermoforge-bridge-for-castudio/install-on-windows:
+  en: 671c79887be1d5e7
+  zh: ce7e8488b5f253e7
+/thermoforge-bridge-for-castudio/enable-cuda:
+  en: 25e78bd6b6a17934
+  zh: c50ce69ba88d4fb5
+/thermoforge-bridge-for-castudio/cli-and-result-integrity:
+  en: 716d225dffadc783
+  zh: 30d69d2c8a659078
+/thermoforge-bridge-for-castudio/tests:
+  en: d1b10b5cab45704a
+  zh: b7548e92a826629f

@@ -1,0 +1,27 @@
+.thermal-workspace-tabs,.thermal-scene-tools,.thermal-segments{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.thermal-workspace-tabs{position:sticky;top:0;z-index:10;padding:8px 0;background:var(--embed-bg,#fff)}
+.dsh-workspace .thermal-editor-panel .thermal-workspace-tabs [aria-selected=true],.thermal-editor-panel .thermal-case-editor .thermal-scene-tools .primary,.thermal-editor-panel .thermal-case-editor .thermal-segments .primary{background:var(--embed-active,#e9edf3);border-color:var(--embed-text,#333)}
+.thermal-case-editor{display:grid;gap:12px;min-width:0}
+.thermal-case-editor>section,.thermal-case-editor>details{min-width:0}
+.thermal-case-editor fieldset{border:0;padding:0;margin:0;min-width:0}
+.thermal-case-editor fieldset:disabled{opacity:.7}
+.thermal-case-editor .thermal-active-strip{display:grid;grid-template-columns:repeat(auto-fit,minmax(135px,1fr));gap:8px 12px;margin-top:10px}
+.thermal-scene-views{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px}
+.thermal-editor-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:8px 12px;align-items:start}
+.thermal-editor-grid label{min-width:0}
+.thermal-case-editor .thermal-scene{height:360px;margin-top:12px;touch-action:none}
+.thermal-scene canvas{display:block;touch-action:none}
+.thermal-case-editor .thermal-editor-hint{margin:8px 0;font-size:12px}
+.thermal-overlay-legend{display:flex;gap:6px;flex-wrap:wrap;margin-top:10px}
+.thermal-overlay-legend button{border:1px solid var(--embed-border,#d4d4d4);border-left:4px solid;border-radius:6px;padding:3px 8px;background:var(--embed-panel,#f4f4f4);color:inherit;max-width:100%;overflow-wrap:anywhere}
+.thermal-case-editor .build-actions{flex-wrap:wrap}
+.thermal-power-plot{width:100%;max-height:210px;touch-action:none;color:var(--embed-muted,#666);display:block}
+.thermal-power-plot circle{cursor:grab;touch-action:none}
+.thermal-power-plot circle:focus-visible{stroke:currentColor;stroke-width:3;outline:none}
+.thermal-curve-table{display:grid;gap:6px}
+.thermal-curve-table>div{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr) auto;gap:8px;align-items:center}
+.thermal-editor-footer{display:flex;gap:10px;align-items:center;justify-content:space-between;flex-wrap:wrap;padding:14px;background:var(--embed-panel,#fafaf7);border:1px solid var(--embed-border,#ddd);border-radius:10px}
+.thermal-draft-notice{padding:10px;border:1px solid var(--embed-border,#ddd);border-radius:8px;background:var(--embed-panel,#fafaf7)}
+.dsh-workspace .thermal-case-editor>section,.dsh-workspace .thermal-case-editor>details{padding:14px;background:var(--embed-surface);border:1px solid var(--embed-border);border-radius:var(--embed-radius);color:var(--embed-text)}
+.dsh-workspace .thermal-case-editor .thermal-power-curve{padding:10px 0;background:transparent;border:0}
+@container(max-width:480px){.thermal-case-editor .thermal-scene{height:290px}.thermal-editor-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.thermal-editor-footer{align-items:stretch}.thermal-editor-footer .build-actions{width:100%}}

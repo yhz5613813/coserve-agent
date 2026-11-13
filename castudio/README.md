@@ -1,5 +1,7 @@
 # CAStudio
 
+热仿真通过服务数据目录中的 `thermal-runtime.json` 选择 `cpu` 或 `cuda`，默认使用 CPU。GPU 不可用时明确报错，不自动回退。解释器由 `STUDIO_THERMAL_PYTHON` 或运行时设置提供；热求解桥接器、独立引擎路径与 CPU/CUDA 配置见 [ThermoForge bridge](integrations/thermal-bridge/README.md)。几何、网格与矩阵组装在 CPU 执行，CUDA/cuDSS 参与热方程求解。
+
 > 本目录是 CoServe AI 仓库（`coserve-agent`）内的 CAStudio 服务工作树：打包时由 `apps/desktop/scripts/prepare-castudio.ts` 安装并构建，再暂存到应用的 `resources/castudio`。它自带 `package-lock.json` 与工具链，不属于 pnpm workspace；随附第三方组件的许可见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。
 
 ## DSH 桌面集成
@@ -68,6 +70,28 @@ npm start
 
 ## 日常工作流
 
+### 设计、仿真、自动反馈与完整交付
+
+在 DSH 设计对话中明确要求“完成设计、GPU 热仿真、依据结果自动优化，并导出设计文件和报告”，内置 `castudio` skill 会沿用 Gmsh 构建与发布、热表面检查、基准仿真、宿主自动优化和成对加密复核。仅请求单次建模或仿真时不会自动启动优化。缺少改变物理问题的工况时仍需补全；示例工况不会被描述为实测工况。
+
+热分析结果页的“自动优化”区域提供“导出完整交付包”。任务结束且实际子任务停止后，服务逐个核对历史源码、构建 STEP 和全部成功求解文件的 SHA-256，生成独立 ZIP，保留导出历史。点击“下载完整 ZIP”保存全部文件，点击“查看闭环报告”查看可打印的完整对比报告。打包失败会显示具体原因，不交付部分成功文件。
+
+交付包的 `final/` 含可编辑 Gmsh Python 源码、STEP、仿真配置与运行关联；`baseline/` 保留原设计和冻结工况；`candidates/` 保留各轮提案、修改理由、源码、STEP 与失败原因；`simulations/` 保留所有成功计算及复核的 PDF、温度历程、网格、实体温度场、XDMF/HDF5 等求解器原生输出。`reports/overview.html` 可离线浏览和打印，`overview.md` 与 `comparison.csv` 便于继续分析。`manifest.json` 和 `SHA256SUMS.txt` 用于核对文件。只有完成成对加密复核且达到显著改善阈值的候选进入最终推荐；待验证、中断、取消、失败或无显著改善时保留基准，候选证据仍完整可查。
+
+接口：`POST /api/projects/:project/optimizations/:task/deliveries` 创建交付包；同一任务版本的并发点击合并。`GET` 同地址列出已完成交付，`GET .../:delivery` 读取清单，`GET .../:delivery/file` 下载 ZIP，`GET .../:delivery/view/reports/overview.html` 查看报告。导出在服务数据目录持久化，恢复任务导致版本变化时正在生成的包会被拒绝；历史交付保持不变。源码包不包括专有 CAD 特征树、制造公差图纸或 CFD 风场结论。
+
+DSH 的新实体设计可使用显式 Gmsh/OpenCASCADE 构建：向项目 `POST .../builds` 提交 `{source,expectedSource,engine:'gmsh'}`，由 `thermal-runtime.json` 的绝对 Python 路径执行；省略 engine 保持原 CAD 运行时。成功构建经 `POST .../builds/:run/publish` 校验并发布到独立目录，随后检查实际热表面、保存工况并调用 `/thermal`。DSH 不持有旧 Pi 编辑锁，可在同一对话回合轮询至完成并读取真实结果；工作区生成的 castudio 技能包含完整步骤。该路径支持新实体热分析，不替换已有 CadFlow notebook，也不将任意模型用于专用圆柱结构分析。Windows 阻止 CadFlow 依赖时仍保持系统安全策略。
+
+热分析运行时，右侧工作区显示求解器实际保存的温度帧和温度曲线。默认跟随最新帧，拖动时间滑块可回看已保存数据。取消或中断后保留的帧带有未完成预览标记，报告下载和保存结果仍以完整求解成功为准。稳态分析显示初始状态与收敛后的稳态解。
+
+「编辑工况」中先选择已发布的 STEP/STL，点击「准备热模型」，再放置表面点、嵌入式点、矩形贴片或整面热源。拖动中心移动，矩形边角调整尺寸；嵌入式点用坐标轴或 XYZ 定位。坐标与尺寸显示毫米，求解配置使用米。矩形高亮和实际面积采用热表面交集，曲面请用点或整面。STL 整面是连通平面组。新增热源需要填写功率与范围；材料预设只是示例值。局部散热沿用相同选区操作。Escape 取消拖动，Ctrl+Z / Ctrl+Shift+Z 撤销与重做。
+
+表单包括整体材料、环境、对流、辐射及功率曲线；高级 JSON 保留未展示字段。保存可保留未完成草稿，点击「运行热仿真」才执行严格物理校验并冻结工况，计算时编辑被锁定。热源结束时间可以早于仿真总时长，以观察断电冷却。结果页保留上一轮结果并提示工况变化，编辑与结果共享相机姿态。
+
+编辑接口：`GET /api/thermal/schema` 返回 schema 与材料预设；项目 `POST .../thermal/inspections` 以 `{source,units}` 启动独立进程检查，`GET .../inspections/:inspection` 查询，`POST .../cancel` 取消，`GET .../surface` 读取真实热表面分组。`POST .../resolve` 接收 `{surfaceHash,selection}`，`POST .../validate` 接收 `{config}`。编辑器元数据作为 case 的独立 `editor` 保存，禁止混入严格求解配置。运行可携带 `inspectionId`、`surfaceHash`、`expectedHash`，源 SHA 或热表面变化后必须重新确认选区。
+
+DSH 设计智能体向项目的 `POST /api/projects/:id/thermal` 提交 `{source,units,config,expectedHash}`，然后轮询至完成并读取真实结果。旧 Pi 智能体持有编辑锁时才使用 `/thermal/queue`，提交后结束编辑回合以释放锁。面板自动选中新任务。`GET /api/projects/:id/thermal/:run` 返回可选 `preview`，其帧通过 `GET /api/projects/:id/thermal/:run/preview/:frame` 读取，稳定的 `.../:run/geometry` 地址提供对应表面。历史完成记录沿用原有结果接口。
+
 1. 创建项目，导入模型或通过设计助手生成源码。
 2. 在三维视图检查部件；在参数化工作区调整参数和建模步骤。
 3. 在「几何检查与对比」中检查 CAD 实体，按需选择当前文件或已加载的历史参考，比较材料变化；发布经过校验的 CAD，运行受支持的分析。
@@ -88,6 +112,12 @@ npm start
 - `snapshot` 指令把当前视口渲染为 PNG，写入项目 `artifacts/viewport/viewport-<UTC 时间戳>.png`，每个项目仅保留最新 10 张；响应返回工作区相对路径 `path`、绝对路径 `absolutePath`、字节数和宽高，可通过 `GET /api/projects/:id/file?path=<path>` 读取。
 
 视口状态与指令结果由打开的页面执行，服务端只负责转发、超时判定和截图落盘；状态只保存在内存中、不落盘，服务重启后需页面重新上报。关闭页面后 `connected` 在 20 秒内变为 false，此时应请用户打开 CAD 工作台标签页。多窗口同时打开时指令结果采用先到先得；接口沿用现有回环地址与来源检查，无额外身份验证。生成到项目 `.agents/skills/castudio/SKILL.md` 的技能文档包含全部指令的请求示例。
+
+## 散热器自动优化 Skill
+
+内置 [heatsink-optimization](resources/heatsink-optimization/SKILL.md) 指导有 Gmsh Python 源码的散热器依据实测结果调整几何、修复失败候选，并说明制造与网格风险。热仿真结果页点击“自动优化”后，每次设计提案自动携带技能全文与 SHA256；DSH 的原有消息日志保留实际输入，不需要手动调用技能。技能不新增工具权限，任务服务继续独立负责冻结工况、几何约束、预算、求解和复核。
+
+准备 CAD 项目时，同一技能会安装到 `.agents/skills/heatsink-optimization/SKILL.md`，供普通设计对话发现。已有项目在下次打开时补装；用户修改过的项目副本不覆盖。自动优化始终使用随安装分发的版本，项目副本修改不会改变自动任务。当前只使用任务内历史，不提供跨项目学习或模型训练。
 
 ## 开发与验证
 

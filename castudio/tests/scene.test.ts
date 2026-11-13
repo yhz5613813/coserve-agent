@@ -9,7 +9,7 @@ import { canonicalZipBytes, preflightZipBytes } from '../server/vendor/cadflow/z
 import { loadScenePackage, type PackageInfo } from '../src/scene/package.js';
 import { simpleFixture } from './scene-fixture.js';
 const fixture = readFileSync(new URL('./fixtures/scene/cadflow-canonical.zip', import.meta.url));
-const buffer = (b: Uint8Array) => b.slice().buffer as ArrayBuffer;
+const buffer = (b: Uint8Array) => Uint8Array.from(b).buffer;
 const loadGlb = async (b: ArrayBuffer) => (await new GLTFLoader().parseAsync(b, '')).scene;
 const load = (b: Uint8Array) => loadScenePackage(buffer(b), loadGlb, { validate: b => validateArchive(new Uint8Array(b)) });
 const meshes = (g: THREE.Group) => { const list: THREE.Mesh[] = []; g.traverse(o => { if (o instanceof THREE.Mesh) list.push(o); }); return list; };

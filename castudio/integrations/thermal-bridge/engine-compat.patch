@@ -1,0 +1,424 @@
+--- a/thermal_legacy/solver.py
++++ b/thermal_legacy/solver.py
+@@ -288,12 +288,18 @@
+         selected=np.zeros(len(display['faces']),dtype=bool);selected[heat['faces']]=True
+         from thermal_legacy.scenario_cases import clipped_quadrature,box_inside
+         box=heat.get('surface_box')
+-        hot=selected[ids]&box_inside(queries.reshape(-1,3,3),box);is_heat|=hot;hotarea=float((area[:,None]/3*hot).sum())
+-        if box:
++        patch=heat.get('surface_patch')
++        hot=selected[ids]&box_inside(queries.reshape(-1,3,3),box)
++        if patch:
++            from thermal_legacy.surface_patch import patch_inside
++            hot&=patch_inside(queries.reshape(-1,3,3),patch)
++        is_heat|=hot;hotarea=float((area[:,None]/3*hot).sum())
++        if box or patch:
++            from thermal_legacy.surface_patch import selected_quadrature
+             candidates=np.arange(len(tri))
+-            parent,qb,qw=clipped_quadrature(tri[candidates],box);hotarea=float(qw.sum())
++            parent,qb,qw=selected_quadrature(tri,display['points'],display['faces'],heat['faces'],box,patch);hotarea=float(qw.sum())
+         if hotarea<=0:raise ValueError(f'热源“{heat["name"]}”的选区小于当前网格分辨率，请扩大选区或细化网格。')
+-        if box:
++        if box or patch:
+             F=np.bincount(bf[candidates[parent]].ravel(),weights=(qb*qw[:,None]*heat['power_W']/hotarea).ravel(),minlength=len(points))
+         else:
+             local=np.einsum('fq,qi->fi',area[:,None]/3*hot*heat['power_W']/hotarea,bary)
+@@ -301,8 +307,8 @@
+         loads.append(F)
+         stltri=display['points'][display['faces'][heat['faces']]]
+         originalarea=float(np.linalg.norm(np.cross(stltri[:,1]-stltri[:,0],stltri[:,2]-stltri[:,0]),axis=1).sum()/2)
+-        if box:originalarea=float(clipped_quadrature(stltri,box)[2].sum())
+-        heat_audits.append(dict(name=heat['name'],source_type=source_type,placement=placement,power_W=float(F.sum()),selected_area_m2=originalarea,mapped_area_m2=hotarea))
++        if box or patch:originalarea=float(selected_quadrature(stltri,display['points'],display['faces'],heat['faces'],box,patch)[2].sum())
++        heat_audits.append(dict(name=heat['name'],source_type=source_type,placement=placement,power_W=float(F.sum()),selected_area_m2=originalarea,mapped_area_m2=hotarea,surface_patch=patch))
+     h=np.where(exterior,cfg['default_h'],0.).astype(float)
+     ambient=np.full(ids.shape,cfg['ambient_C'])
+     radiation=np.full(ids.shape,bool(cfg.get('radiation_enabled',False)),dtype=bool)
+@@ -326,6 +332,10 @@
+     rad_eps_sum=np.bincount(bf.ravel(),weights=(rad_weights*emissivity).ravel(),minlength=len(points))
+     rad_ambient=np.divide(rad_ambient_sum,rad_area,out=np.full(len(points),float(cfg['ambient_C']),dtype=float),where=rad_area>0)
+     rad_eps=np.divide(rad_eps_sum,rad_area,out=np.zeros(len(points)),where=rad_area>0)
++    cooling_audits=[]
++    if any(condition.get('surface_patch') for condition in [*cfg['heat_sources'],*cfg['cooling']]):
++        from thermal_legacy.surface_patch import boundary_terms
++        C,G,rad_area,rad_ambient,rad_eps,cooling_audits=boundary_terms(points,bf,display,cfg)
+     phase_entries=[]
+     for i,m in enumerate(materials):
+         phase=m.get('phase_change')
+@@ -338,7 +348,7 @@
+     closest,vd,vi=project(bmesh,display['points'])
+     vb=trimesh.triangles.points_to_barycentric(points[bf[vi]],closest)
+     vol=mesh['tet_volumes']
+-    audit=dict(heat_sources=heat_audits,boundary_projection_max_m=float(dist.max()),display_projection_max_m=float(vd.max()),
++    audit=dict(heat_sources=heat_audits,cooling_regions=cooling_audits,boundary_projection_max_m=float(dist.max()),display_projection_max_m=float(vd.max()),
+         volume_m3=float(vol.sum()),mass_kg=float(vol@props[:,2]),heat_capacity_J_K=float(M.sum()),contact_resistance_m2K_W=contact_r,
+         constant_field_conduction_residual=float(np.abs(K@np.ones(len(points))).max()),
+         air_gap=air_gap_audit,
+@@ -380,7 +390,7 @@
+     return float(power)
+ 
+ 
+-def integrate(M,K,C,G,loads,cfg,callback=lambda *x:None,rad_area=None,rad_ambient=None,rad_eps=None,phase_entries=None,initial_temperature=None):
++def integrate(M,K,C,G,loads,cfg,callback=lambda *x:None,rad_area=None,rad_ambient=None,rad_eps=None,phase_entries=None,initial_temperature=None,frame_callback=None):
+     device=gpu_status('transient')
+     use_gpu=device['device']=='cuda'
+     end=cfg['duration_s'];dt=cfg['dt_s'];save=cfg['save_s']
+@@ -407,6 +417,8 @@
+         energy=stored_energy(theta);saved.append(theta.astype(np.float32))
+         stats.append(dict(time_s=float(t),minimum_C=float(theta.min()+cfg['initial_C']),maximum_C=float(theta.max()+cfg['initial_C']),
+             average_C=float(energy/mc.sum()+cfg['initial_C']),stored_energy_J=energy,convective_loss_W=float(cc@theta-environment_load(t).sum())))
++        if frame_callback is not None:
++            frame_callback(float(t),saved[-1]+np.float32(cfg['initial_C']))
+     initial_energy=stored_energy(theta)
+     snapshot(0);save_index=1
+     for i,(t0,t1) in enumerate(zip(grid[:-1],grid[1:])):
+@@ -439,10 +451,12 @@
+     return np.array(saved),output,stats,dict(initial_stored_energy_J=initial_energy,input_energy_J=integrated_in,convective_energy_J=integrated_loss,energy_balance_error_J=balance,maximum_step_residual_J=max_residual)
+ 
+ 
+-def steady(M,K,C,G,loads,cfg,callback=lambda *x:None,rad_area=None,rad_ambient=None,rad_eps=None):
++def steady(M,K,C,G,loads,cfg,callback=lambda *x:None,rad_area=None,rad_ambient=None,rad_eps=None,frame_callback=None):
+     device=gpu_status('steady')
+     use_gpu=device['device']=='cuda'
+     theta=np.zeros(M.shape[0]);mc=np.asarray(M.sum(axis=0)).ravel();F=G.copy()
++    if frame_callback is not None:
++        frame_callback(0.,theta+cfg['initial_C'])
+     for load,source in zip(loads,cfg['heat_sources']):
+         power=_power_at(source,cfg['duration_s']) if source['start_s']<=cfg['duration_s']<=source['end_s'] else 0.
+         if source['power_W']>0:F+=load*(power/source['power_W'])
+@@ -459,6 +473,8 @@
+     residual=float(np.max(np.abs((K+C+(final_R if final_R is not None else 0))@theta-F-(final_Gr if final_Gr is not None else 0))))
+     stats=[dict(time_s=0.,minimum_C=float(cfg['initial_C']),maximum_C=float(cfg['initial_C']),average_C=float(cfg['initial_C']),stored_energy_J=0.,convective_loss_W=0.)]
+     final=theta+cfg['initial_C'];stats.append(dict(time_s=float(cfg['duration_s']),minimum_C=float(final.min()),maximum_C=float(final.max()),average_C=float((mc@theta)/mc.sum()+cfg['initial_C']),stored_energy_J=float(mc@theta),convective_loss_W=float((C@theta-G).sum())))
++    if frame_callback is not None:
++        frame_callback(float(cfg['duration_s']),final)
+     return np.asarray([np.zeros_like(theta),theta]),np.asarray([0.,cfg['duration_s']]),stats,dict(input_energy_J=float(sum(_power_at(s,cfg['duration_s']) for s in cfg['heat_sources'])),convective_energy_J=0.,energy_balance_error_J=residual,maximum_step_residual_J=residual,steady_residual=residual)
+ 
+ 
+@@ -557,7 +573,8 @@
+             if (job/name).exists(): z.write(job/name,name)
+         for asset in (job/'report-assets').glob('*'):z.write(asset,'report-assets/'+asset.name)
+ 
+-def solve_job(job):
++def solve_job(job,frame_callback=None):
++    """Solve and export; an optional observer receives each saved display frame and volume statistics."""
+     cfg=read_json(job/'config.json');folder=MODELS/cfg['model_id'];display=dict(np.load(folder/'display.npz'))
+     device=gpu_status(cfg.get('analysis_mode','transient'))
+     progress(job,'running',5,'准备几何与材料分区')
+@@ -578,18 +595,23 @@
+     if len(mesh['points'])*(cfg['duration_s']/cfg['save_s']+2)>25000000:raise ValueError('结果规模过大，请增大保存间隔或网格尺寸。')
+     progress(job,'running',35,'组装多材料导热、热容量和表面边界')
+     M,K,C,G,loads,labels,display_nodes,display_bary,audit,rad_area,rad_ambient,rad_eps,phase_entries=assemble(mesh,cfg,display)
++    volume_weights=np.bincount(mesh['tets'].ravel(),weights=np.repeat(mesh['tet_volumes']/4,4),minlength=len(mesh['points']))
++    def saved_frame(t,values):
++        field=np.einsum('vi,vi->v',values[display_nodes],display_bary).astype('<f4')
++        frame_callback(t,field,dict(minimum_C=float(values.min()),maximum_C=float(values.max()),
++            average_C=float(volume_weights@values/volume_weights.sum())))
++    observer=saved_frame if frame_callback is not None else None
+     progress(job,'running',55,'开始'+('稳态' if cfg.get('analysis_mode')=='steady' else '瞬态')+'温度计算（'+device['device'].upper()+'）')
+     callback=lambda fraction,msg:progress(job,'running',55+int(30*fraction),msg)
+     if cfg.get('analysis_mode')=='steady':
+-        theta,times,stats,energy=steady(M,K,C,G,loads,cfg,callback,rad_area,rad_ambient,rad_eps)
++        theta,times,stats,energy=steady(M,K,C,G,loads,cfg,callback,rad_area,rad_ambient,rad_eps,frame_callback=observer)
+     else:
+-        theta,times,stats,energy=integrate(M,K,C,G,loads,cfg,callback,rad_area,rad_ambient,rad_eps,phase_entries,initial_temperature)
++        theta,times,stats,energy=integrate(M,K,C,G,loads,cfg,callback,rad_area,rad_ambient,rad_eps,phase_entries,initial_temperature,frame_callback=observer)
+     if initial_temperature is not None:
+         audit['continuation']=dict(parent_job=cfg['initial_from_job'],method='identical mesh; saved final nodal temperatures',
+             initial_minimum_C=float(initial_temperature.min()),initial_maximum_C=float(initial_temperature.max()))
+     # Report the actual volume average, distinct from the heat-capacity-weighted
+     # average used internally for the energy balance in a heterogeneous solid.
+-    volume_weights=np.bincount(mesh['tets'].ravel(),weights=np.repeat(mesh['tet_volumes']/4,4),minlength=len(mesh['points']))
+     for row,values in zip(stats,theta):row['average_C']=float(volume_weights@values/volume_weights.sum()+cfg['initial_C'])
+     frames=theta+np.float32(cfg['initial_C']);np.save(job/'temperatures.npy',frames)
+     materials_for_expansion=[cfg['base_material']]+[r['material'] for r in cfg['regions']]+[r['material'] for r in cfg.get('component_materials',[])]
+--- a/thermal_legacy/schemas.py
++++ b/thermal_legacy/schemas.py
+@@ -82,6 +82,20 @@
+         if any(a>b for a,b in zip(self.min_m,self.max_m)):raise ValueError('选区盒坐标下限不能大于上限')
+         return self
+ 
++class SurfacePatch(Strict):
++    center_m: list[Finite] = Field(min_length=3,max_length=3)
++    u_axis: list[Finite] = Field(min_length=3,max_length=3)
++    v_axis: list[Finite] = Field(min_length=3,max_length=3)
++    width_m: Finite = Field(gt=0,le=100)
++    height_m: Finite = Field(gt=0,le=100)
++    @model_validator(mode='after')
++    def orthonormal(self):
++        import numpy as np
++        u,v=np.asarray(self.u_axis),np.asarray(self.v_axis)
++        if abs(np.linalg.norm(u)-1)>1e-6 or abs(np.linalg.norm(v)-1)>1e-6 or abs(u@v)>1e-6:
++            raise ValueError('矩形贴片坐标轴必须为相互垂直的单位向量')
++        return self
++
+ class AmbientPoint(Strict):
+     time_s: Finite = Field(ge=0,le=864000)
+     ambient_C: Finite = Field(ge=-273.15,le=5000)
+@@ -108,6 +122,7 @@
+     end_s: Finite = Field(default=3600,gt=0)
+     faces: list[int] = Field(default_factory=list,max_length=500000)
+     surface_box: SurfaceBox | None = None
++    surface_patch: SurfacePatch | None = None
+     position_m: list[Finite] | None = Field(default=None,min_length=3,max_length=3)
+     radius_m: Finite = Field(default=.001,gt=0,le=100)
+     power_profile: list['PowerPoint'] = Field(default_factory=list,max_length=128)
+@@ -115,6 +130,8 @@
+     @model_validator(mode='after')
+     def ordered(self):
+         if self.end_s<=self.start_s: raise ValueError('热源结束时间必须晚于开始时间')
++        if self.surface_patch and (self.surface_box or self.source_type!='surface' or self.placement=='embedded'):
++            raise ValueError('矩形贴片仅用于面热源，不能与盒选区同时使用')
+         if self.source_type == 'surface' and self.placement != 'embedded' and not self.faces:
+             raise ValueError('面热源必须选择至少一个表面三角面')
+         if (self.source_type == 'point' or self.placement == 'embedded') and self.position_m is None and not self.faces:
+@@ -145,11 +162,13 @@
+         if any(f<0 for f in faces):raise ValueError('面编号必须非负')
+         return sorted(set(faces))
+     surface_box: SurfaceBox | None = None
++    surface_patch: SurfacePatch | None = None
+     radiation: bool = False
+     emissivity: Finite = Field(default=.85,ge=0,le=1)
+     @model_validator(mode='after')
+     def valid_faces(self):
+         if min(self.faces)<0: raise ValueError('无效的面编号')
++        if self.surface_patch and self.surface_box:raise ValueError('矩形贴片不能与盒选区同时使用')
+         self.faces=sorted(set(self.faces)); return self
+ 
+ class StructuralSupport(Strict):
+--- a/thermal_legacy/geometry.py
++++ b/thermal_legacy/geometry.py
+@@ -137,7 +137,7 @@
+         outer.update(int(s) for s in loops[int(np.argmax(sizes))])
+     return outer
+ 
+-def extract_surface(outer):
++def extract_surface(outer, surface_groups=None):
+     tags,xyz,_=gmsh.model.mesh.getNodes()
+     lookup=np.full(int(max(tags))+1,-1,dtype=np.int64);lookup[tags]=np.arange(len(tags))
+     faces=[];flags=[]
+@@ -149,6 +149,7 @@
+                 f=lookup[ns].reshape(-1,3)
+                 if orientations.get(surface,1)<0:f=f[:,[0,2,1]]
+                 faces.append(f);flags.extend([surface in outer]*len(f))
++                if surface_groups is not None:surface_groups.extend([int(surface)]*len(f))
+     return np.asarray(xyz).reshape(-1,3),np.vstack(faces),np.asarray(flags)
+ 
+ def write_display(folder, points, faces, outer):
+@@ -185,7 +186,7 @@
+     meta['geometry_quality']=quality
+     return mesh.vertices,np.asarray(mesh.faces),outer,watertight
+ 
+-def prepare_model(folder):
++def prepare_model(folder, include_surface_groups=False):
+     meta=read_json(folder/'metadata.json');progress(folder,'running',10,'正在读取几何')
+     if meta['kind']=='stl':
+         points,faces,outer,valid=load_stl(folder,meta)
+@@ -208,7 +209,9 @@
+             gmsh.option.setNumber('Mesh.MeshSizeFromCurvature',20)
+             progress(folder,'running',40,'正在生成可选取的三角形表面')
+             gmsh.model.mesh.generate(2)
+-            points,faces,outer=extract_surface(outer_tags)
++            groups=[] if include_surface_groups else None
++            points,faces,outer=extract_surface(outer_tags,groups)
++            if groups is not None:write_json(folder/'surface-groups.json',{'face_groups':groups,'kind':'step'})
+             meta['mesh_ready']=True;meta['warning']=''
+         except Exception as error:
+             meta.update(state='failed',mesh_ready=False,warning=f'STEP 表面网格失败：{error}')
+--- /dev/null
++++ b/thermal_legacy/surface_patch.py
+@@ -0,0 +1,135 @@
++"""Surface-bound clipping in physical coordinates; P1 barycentric quadrature."""
++import numpy as np
++import trimesh
++from thermal_legacy.scenario_cases import clipped_quadrature
++from thermal_legacy.geometry import project
++
++
++def patch_coordinates(points,patch):
++    u,v=np.asarray(patch['u_axis']),np.asarray(patch['v_axis'])
++    basis=np.stack((u,v,np.cross(u,v)),axis=1)
++    return (np.asarray(points)-patch['center_m'])@basis
++
++
++def patch_box(patch,scale):
++    eps=max(float(scale)*1e-7,1e-10)
++    return dict(min_m=[-patch['width_m']/2,-patch['height_m']/2,-eps],
++                max_m=[patch['width_m']/2,patch['height_m']/2,eps])
++
++
++def patch_inside(points,patch):
++    from thermal_legacy.scenario_cases import box_inside
++    return box_inside(patch_coordinates(points,patch),patch_box(patch,max(patch['width_m'],patch['height_m'])))
++
++
++def selected_quadrature(triangles,display_points,display_faces,selected_faces,box=None,patch=None):
++    triangles=np.asarray(triangles,float)
++    local=patch_coordinates(triangles,patch) if patch else triangles
++    clipping=patch_box(patch,np.ptp(triangles,axis=(0,1)).max()) if patch else box
++    parent,bary,weight=clipped_quadrature(local,clipping)
++    if not len(weight):return parent,bary,weight
++    query=np.einsum('qi,qic->qc',bary,triangles[parent])
++    original=trimesh.Trimesh(vertices=display_points,faces=display_faces,process=False)
++    _,_,ids=project(original,query)
++    selected=np.zeros(len(display_faces),bool);selected[np.asarray(selected_faces,dtype=int)]=True
++    keep=selected[ids]
++    if box and patch:
++        from thermal_legacy.scenario_cases import box_inside
++        keep&=box_inside(query,box)
++    return parent[keep],bary[keep],weight[keep]
++
++
++def _split(poly,triangle,normal,offset,eps):
++    values=(np.asarray(poly)@triangle)@normal-offset
++    if np.all(values>=-eps) or np.all(values<=eps):return [poly]
++    halves=[[],[]]
++    for sign,out in zip((1,-1),halves):
++        for i,a in enumerate(poly):
++            b=poly[(i+1)%len(poly)];x,y=values[i]*sign,values[(i+1)%len(poly)]*sign
++            inside=x>=-eps;other=y>=-eps
++            if inside:out.append(a)
++            if inside!=other:out.append(a+(b-a)*(x/(x-y)))
++    return [p for p in halves if len(p)>=3]
++
++
++def partition_quadrature(triangles,patches):
++    """Partition surface triangles at patch edges before integrating coefficients.
++
++    Keeps both sides of every cut so overlapping cooling overrides can be
++    evaluated at quadrature points without dropping or duplicating area.
++    """
++    triangles=np.asarray(triangles,float);scale=max(float(np.ptp(triangles,axis=(0,1)).max()),1e-9)
++    eps=max(scale*1e-10,1e-13);prepared=[]
++    for patch in patches:
++        u,v=np.asarray(patch['u_axis']),np.asarray(patch['v_axis']);n=np.cross(u,v)
++        center=np.asarray(patch['center_m']);half=[patch['width_m']/2,patch['height_m']/2,max(scale*1e-7,1e-10)]
++        axes=[u,v,n];extent=sum((abs(a)*h for a,h in zip(axes,half)),np.zeros(3))
++        planes=[(axis,float(center@axis+sign*h)) for axis,h in zip(axes,half) for sign in (-1,1)]
++        prepared.append((center-extent,center+extent,planes))
++    parents=[];barys=[];weights=[]
++    rule=np.array([[2/3,1/6,1/6],[1/6,2/3,1/6],[1/6,1/6,2/3]])
++    for index,tri in enumerate(triangles):
++        pieces=[list(np.eye(3))]
++        for lo,hi,planes in prepared:
++            if np.any(tri.max(axis=0)<lo-eps) or np.any(tri.min(axis=0)>hi+eps):continue
++            for normal,offset in planes:
++                pieces=[part for poly in pieces for part in _split(poly,tri,normal,offset,eps)]
++                if len(pieces)>4096:raise ValueError('重叠散热区域过多，请减少区域或细化网格')
++        for poly in pieces:
++            for i in range(1,len(poly)-1):
++                bary=np.asarray([poly[j] for j in (0,i,i+1)]);p=bary@tri
++                area=float(np.linalg.norm(np.cross(p[1]-p[0],p[2]-p[0]))/2)
++                if area>1e-22:
++                    parents.extend([index]*3);barys.extend(rule@bary);weights.extend([area/3]*3)
++        if len(weights)>2000000:raise ValueError('散热选区积分规模过大，请减少重叠区域')
++    return np.asarray(parents,int),np.asarray(barys).reshape(-1,3),np.asarray(weights)
++
++
++def boundary_terms(points,boundary,display,cfg):
++    """Reintegrate boundaries split at rectangular edges, including overlaps."""
++    from scipy.sparse import coo_matrix
++    from thermal_legacy.scenario_cases import box_inside
++    conditions=[*cfg['heat_sources'],*cfg['cooling']]
++    patches=[c['surface_patch'] for c in conditions if c.get('surface_patch')]
++    parent,bary,weight=partition_quadrature(points[boundary],patches)
++    query=np.einsum('qi,qic->qc',bary,points[boundary[parent]])
++    original=trimesh.Trimesh(display['points'],display['faces'],process=False)
++    _,_,ids=project(original,query)
++    def chosen(condition):
++        mask=np.zeros(len(display['faces']),bool);mask[condition.get('faces',[])]=True
++        result=mask[ids]&box_inside(query,condition.get('surface_box'))
++        if condition.get('surface_patch'):result&=patch_inside(query,condition['surface_patch'])
++        return result
++    h=np.where(display['is_outer'][ids],cfg['default_h'],0.).astype(float)
++    ambient=np.full(len(ids),float(cfg['ambient_C']))
++    radiation=np.full(len(ids),bool(cfg.get('radiation_enabled',False)))
++    rad_ambient=np.full(len(ids),float(cfg.get('radiation_ambient_C',cfg['ambient_C'])))
++    emissivity=np.full(len(ids),float(cfg.get('emissivity',.8)))
++    if not cfg['heat_convection']:
++        for heat in cfg['heat_sources']:
++            if heat.get('source_type')=='point' or heat.get('placement')=='embedded':
++                source=dict(heat)
++                if not source.get('faces'):
++                    centers=np.asarray(display['points'])[np.asarray(display['faces'])].mean(axis=1)
++                    source['faces']=[int(np.argmin(np.linalg.norm(centers-source['position_m'],axis=1)))]
++                h[chosen(source)]=0
++            else:h[chosen(heat)]=0
++    owner=np.full(len(ids),-1,dtype=int)
++    for index,cool in enumerate(cfg['cooling']):
++        mask=chosen(cool);h[mask]=cool['h'];ambient[mask]=cool['ambient_C']
++        radiation[mask]=bool(cool.get('radiation',False));rad_ambient[mask]=cool['ambient_C'];emissivity[mask]=cool.get('emissivity',.85)
++        owner[mask]=index
++    nodes=boundary[parent];size=len(points)
++    local=weight[:,None,None]*h[:,None,None]*bary[:,:,None]*bary[:,None,:]
++    rows=np.broadcast_to(nodes[:,:,None],local.shape);cols=np.broadcast_to(nodes[:,None,:],local.shape)
++    C=coo_matrix((local.ravel(),(rows.ravel(),cols.ravel())),shape=(size,size)).tocsr()
++    G=np.bincount(nodes.ravel(),weights=(bary*(weight*h*(ambient-cfg['initial_C']))[:,None]).ravel(),minlength=size)
++    def lump(values):return np.bincount(nodes.ravel(),weights=(bary*(weight*radiation*values)[:,None]).ravel(),minlength=size)
++    rad_area=lump(1.)
++    average=np.divide(lump(rad_ambient),rad_area,out=np.full(size,float(cfg['ambient_C'])),where=rad_area>0)
++    epsilon=np.divide(lump(emissivity),rad_area,out=np.zeros(size),where=rad_area>0)
++    audits=[]
++    for index,cool in enumerate(cfg['cooling']):
++        selected=selected_quadrature(np.asarray(display['points'])[np.asarray(display['faces'])],display['points'],display['faces'],cool['faces'],cool.get('surface_box'),cool.get('surface_patch'))[2].sum()
++        audits.append(dict(name=cool['name'],selected_area_m2=float(selected),mapped_area_m2=float(weight[chosen(cool)].sum()),effective_area_m2=float(weight[owner==index].sum()),h=cool['h'],ambient_C=cool['ambient_C'],surface_patch=cool.get('surface_patch')))
++    return C,G,rad_area,average,epsilon,audits
+--- a/thermal_legacy/engineering_report.py
++++ b/thermal_legacy/engineering_report.py
+@@ -128,11 +128,18 @@
+     for scope,m in mats:lines += [f'| {scope} | {m["name"]} | {CATEGORIES.get(m.get("category","other"),"其他")} |']
+     for r in cfg.get('regions',[]):lines += [f'区域 {r["name"]} 范围：{position(r["min_m"])} 至 {position(r["max_m"])}。']
+     lines+=['','热源：'+('无热源，环境换热驱动。' if not cfg.get('heat_sources') else '')]
+-    for heat in cfg.get('heat_sources',[]):
++    for heat_index,heat in enumerate(cfg.get('heat_sources',[])):
+         lines += [f'- {heat["name"]}：{heat["power_W"]:g} W，{heat["start_s"]:g}–{heat["end_s"]:g} s；类型 {heat.get("source_type")} / {heat.get("placement")}，{len(heat.get("faces",[]))} 个选中三角面；位置 {position(heat.get("position_m"))}，半径 {heat.get("radius_m",.001)*1000:g} mm。']
++        if heat.get('surface_patch'):
++            patch=heat['surface_patch'];item=(audit.get('heat_sources') or [])[heat_index]
++            lines += [f'  矩形贴片：中心 {position(patch["center_m"])}；长宽 {patch["width_m"]*1000:g} × {patch["height_m"]*1000:g} mm；局部 U/V 轴 {patch["u_axis"]} / {patch["v_axis"]}。',
++                      f'  指定表面与贴片交集面积 {number(item.get("selected_area_m2"),1e6)} mm²；实际载荷积分面积 {number(item.get("mapped_area_m2"),1e6)} mm²；积分功率 {number(item.get("power_W"))} W。']
+         if heat.get('thermostat'):lines += ['温控参数：'+json.dumps(heat['thermostat'],ensure_ascii=False)]
+         if heat.get('power_profile'):lines += ['功率曲线 (s,W)：'+', '.join(f'({p["time_s"]:g},{p["power_W"]:g})' for p in heat['power_profile'])]
+     for c in cfg.get('cooling',[]):lines += [f'- 散热区 {c["name"]}：{len(c["faces"])} 个面；h={c["h"]:g}，环境 {c["ambient_C"]:g} °C；辐射 {c.get("radiation",False)}，发射率 {c.get("emissivity",.85):g}。']
++    for item in audit.get('cooling_regions',[]):
++        if item.get('surface_patch'):
++            patch=item['surface_patch'];lines += [f'  散热矩形贴片 {item["name"]}：中心 {position(patch["center_m"])}；长宽 {patch["width_m"]*1000:g} × {patch["height_m"]*1000:g} mm；实际映射面积 {number(item["mapped_area_m2"],1e6)} mm²，扣除后续覆盖后的有效面积 {number(item["effective_area_m2"],1e6)} mm²。']
+     if audit.get('components'):
+         lines+=['','| 体网格组件 | 体积 (mm³) | 全程最低/最高 (°C) | 末帧体积平均 (°C) |','|---|---|---|---|']
+         for c in audit['components']:lines += [f'| {c["component_id"]+1} | {number(c.get("volume_m3"),1e9)} | {number(c.get("minimum_C"))} / {number(c.get("maximum_C"))} | {number(c.get("final_average_C"))} |']
+--- a/thermal_legacy/workflow_report.py
++++ b/thermal_legacy/workflow_report.py
+@@ -8,6 +8,9 @@
+     """Describe actual solved inputs, without large face-ID arrays."""
+     def number(v):return '未提供' if v is None else f'{v:.6g}'
+     def selection(item):
++        if item.get('surface_patch'):
++            patch=item['surface_patch']
++            return '矩形贴片中心(m) '+str(patch['center_m'])+'，长宽(mm) '+number(patch['width_m']*1000)+' × '+number(patch['height_m']*1000)+'；指定热表面与贴片的交集'
+         box=item.get('surface_box')
+         if box:
+             return 'XYZ范围(mm) '+', '.join(f'{lo*1000:g}至{hi*1000:g}' for lo,hi in zip(box['min_m'],box['max_m']))
+--- a/thermal_legacy/runtime.py
++++ b/thermal_legacy/runtime.py
+@@ -1,5 +1,5 @@
+ from pathlib import Path
+-import sys, json, os
++import sys, json, os, time
+ ROOT = Path(__file__).resolve().parent
+ sys.path.insert(0, str(ROOT / '.runtime/pythonlib'))
+ DATA = Path(os.environ.get('THERMAL_DATA', str(ROOT.parent / 'data' / 'legacy-thermal'))).resolve()
+@@ -14,7 +14,14 @@
+     path = Path(path)
+     tmp = path.with_suffix(path.suffix+'.tmp')
+     tmp.write_text(json.dumps(value, ensure_ascii=False, separators=(',',':'), allow_nan=False), encoding='utf-8')
+-    os.replace(tmp, path)
++    for attempt in range(10):
++        try:
++            os.replace(tmp, path)
++            break
++        except PermissionError:
++            # Windows readers can briefly deny replacement of an open status file.
++            if attempt == 9: raise
++            time.sleep(min(.02 * (attempt + 1), .1))
+ 
+ def progress(folder, phase, percent, detail='', **extra):
+     write_json(folder/'status.json', dict(phase=phase, progress=percent, detail=detail, **extra))

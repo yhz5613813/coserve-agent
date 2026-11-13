@@ -109,6 +109,20 @@ describe('owningGroupKey', () => {
 })
 
 describe('Session ordering', () => {
+  it('keeps previous unsent conversations reachable after opening a fresh blank', () => {
+    const sessions = withMain(list(
+      { ...summary('old-draft', 10), title: '', blank: true },
+      { ...summary('fresh', 20), title: '', blank: true },
+    ), sid('fresh'))
+    const rows = deriveGroups(sessions, [workspace('a', ['old-draft', 'fresh'])], noRows, noAttention, view(['a']))[0]!.sessions
+    expect(rows.map(row => ({ id: row.id, blank: row.blank, title: row.title }))).toEqual([
+      { id: sid('fresh'), blank: true, title: '' },
+      { id: sid('old-draft'), blank: false, title: '' },
+    ])
+    expect(deriveFlat(sessions, sessions.ids, noRows, noAttention).map(row => row.id)).toEqual([sid('fresh'), sid('old-draft')])
+    expect(sessionMemberIds(sessions)).toEqual([sid('old-draft'), sid('fresh')])
+  })
+
   it.each(['workspace', 'ungrouped', 'flat'] as const)('keeps the current New Session before pins in %s', (mode) => {
     const sessions = withMain(list(
       summary('pin', 30),
@@ -311,7 +325,7 @@ describe('deriveGroups', () => {
     ])
   })
 
-  it('shows only the current blank session in its Workspace count and tree', () => {
+  it('keeps prior unsent sessions in the Workspace count and tree', () => {
     const currentBlank = { ...summary('current-blank', 5), blank: true, retainedBy: { mainView: 1 } }
     const staleBlank = { ...summary('stale-blank', 4), blank: true }
     const real = summary('shown', 3)
@@ -320,20 +334,21 @@ describe('deriveGroups', () => {
       sessions, [workspace('first', ['shown', 'current-blank', 'stale-blank'])],
       noRows, noAttention, view(['first']),
     )
-    expect(groups[0]!.sessions.map(session => session.id)).toEqual([currentBlank.id, real.id])
+    expect(groups[0]!.sessions.map(session => session.id)).toEqual([currentBlank.id, real.id, staleBlank.id])
     const blankNode = groups[0]!.sessions.find(session => session.id === currentBlank.id)!
     // The stored placeholder title stays canonical; the renderer swaps in
     // the localized New Session label via the blank flag.
     expect(blankNode.title).toBe('')
     expect(blankNode.blank).toBe(true)
     expect(groups[0]!.sessions.find(session => session.id === real.id)!.blank).toBe(false)
-    expect(groups[0]!.sessionCount).toBe(2)
-    // A non-current blank stray never surfaces an Ungrouped bucket either.
+    expect(groups[0]!.sessionCount).toBe(3)
+    expect(groups[0]!.sessions.find(session => session.id === staleBlank.id)!.blank).toBe(false)
+    // Unassigned drafts remain reachable through Ungrouped as well.
     const strayGroups = deriveGroups(
       list({ ...summary('stray', 2), blank: true }),
       [workspace('first', [])], noRows, noAttention, view(),
     )
-    expect(strayGroups.map(group => group.key)).toEqual(['first'])
+    expect(strayGroups.map(group => group.key)).toEqual(['first', UNGROUPED_KEY])
   })
 
   it('projects the completion reminder into session and search rows (absent = false)', () => {
@@ -590,14 +605,14 @@ describe('deriveFlat', () => {
     expect(groups[0]!.sessions.every(row => !('fork' in row))).toBe(true)
   })
 
-  it('shows only the current blank session and excludes blanks from search', () => {
+  it('shows earlier unsent sessions as ordinary history in flat mode', () => {
     const currentBlank = { ...summary('current-blank', 9), blank: true, retainedBy: { mainView: 1 } }
     const staleBlank = { ...summary('stale-blank', 8), blank: true }
     const sessions = list(currentBlank, summary('real', 1), staleBlank)
     const rows = deriveFlat(sessions, visibleSessionIds(sessions, noArchive, 'default'), noRows, noAttention)
-    expect(rows.map(row => row.id)).toEqual([currentBlank.id, sid('real')])
-    expect(rows.map(row => row.title)).toEqual(['', 'real'])
-    expect(rows.map(row => row.blank)).toEqual([true, false])
+    expect(rows.map(row => row.id)).toEqual([currentBlank.id, sid('real'), staleBlank.id])
+    expect(rows.map(row => row.title)).toEqual(['', 'real', 'stale-blank'])
+    expect(rows.map(row => row.blank)).toEqual([true, false, false])
   })
 
   it('hides archived sessions in flat mode', () => {
@@ -770,12 +785,11 @@ describe('deriveSearchResults', () => {
     expect(result.items.map(item => [item.id, item.title])).toEqual([[idHit.id, 'Ordinary title']])
   })
 
-  it('excludes blank sessions from search regardless of query or content hits', () => {
-    const currentBlank = { ...summary('opaque-current', 5), blank: true }
+  it('searches earlier unsent sessions while excluding the current placeholder', () => {
+    const currentBlank = { ...summary('opaque-current', 5), blank: true, retainedBy: { mainView: 1 } }
     const staleBlank = { ...summary('new session stale', 4), blank: true }
     const sessions = list(currentBlank, staleBlank)
-    // Blank placeholders never match — not their localized-display title, not
-    // their id, and not even a backend content hit naming them.
+    // The current placeholder stays excluded; previous drafts remain searchable.
     const result = deriveSearchResults(
       sessions,
       [workspace('first', ['opaque-current', 'new session stale'])],
@@ -792,7 +806,7 @@ describe('deriveSearchResults', () => {
       },
       10,
     )
-    expect(result.items).toEqual([])
+    expect(result.items.map(item => item.id)).toEqual([staleBlank.id])
   })
 
   it('uses the supplied cap and preserves either local overflow or backend hasMore', () => {

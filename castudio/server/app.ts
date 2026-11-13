@@ -1,3 +1,5 @@
+import {Optimizations,optimizationRoutes} from './optimization.js';
+import {Deliveries,deliveryRoutes} from './delivery.js';
 import { parametricRoutes } from './parametric.js';
 import { dshWorkspaceRoutes } from './dsh-workspace.js';
 import { viewportRoutes, type ViewportRouteOptions } from './viewport.js';
@@ -6,6 +8,8 @@ import { cadInspectionRoutes } from './cad-inspections.js';
 import { structuralRoutes } from './structural.js';
 import express from 'express';
 import { Thermal } from './thermal.js';
+import {ThermalEditor} from './thermal-editor.js';
+import {ThermalResource} from './thermal-resource.js';
 import multer from 'multer';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
@@ -30,7 +34,10 @@ export async function createApp(dataRoot: string, options: { viewport?: Viewport
   for (const project of await store.projects()) await history.recover(project.id);
   const plugins = new Plugins(dataRoot), events = new Events(), harness = new PiHarness(store, plugins, events, history);
   const builds = new Builds(store, history, events); await builds.recover();
-  const thermal = new Thermal(store, history, events); await thermal.recover();
+  const thermalResource=new ThermalResource();
+  const thermal = new Thermal(store, history, events,thermalResource); await thermal.recover();
+  const thermalEditor=new ThermalEditor(store,events,thermalResource);await thermalEditor.recover();
+  const optimizations=new Optimizations(store,history,builds,thermal,thermalEditor,events);await optimizations.recover();
   const modify = async <T>(id: string, action: () => Promise<T>) => {
     const release = store.acquire(id);
     try { await history.recover(id); return await action(); } finally { release(); }
@@ -47,6 +54,8 @@ export async function createApp(dataRoot: string, options: { viewport?: Viewport
   viewportRoutes(app, store, events, options.viewport);
   app.use(express.json({ limit: '8mb' }));
   dshWorkspaceRoutes(app, store);
+  optimizationRoutes(app,optimizations);
+  deliveryRoutes(app,new Deliveries(store,optimizations,history,builds,thermal));
   const parametric=parametricRoutes(app,store,history);
   const cylinderObjects=cylinderObjectsRoutes(app,store,history,{changed:id=>{events.emit(id,'artifacts_changed',{});events.emit(id,'history_changed',{});}});
   const cadInspections=cadInspectionRoutes(app,store,history,{changed:id=>events.emit(id,'artifacts_changed',{})});
@@ -65,7 +74,7 @@ export async function createApp(dataRoot: string, options: { viewport?: Viewport
   app.post('/api/runtime/probe', async (req, res) => res.json(await builds.runtime.probe(req.body.executable)));
   app.put('/api/runtime', async (req, res) => res.json(await builds.runtime.save(req.body.executable)));
   app.get('/api/projects/:id/builds', async (req, res) => res.json(await builds.list(req.params.id)));
-  app.post('/api/projects/:id/builds', async (req, res) => res.status(202).json(await builds.start(req.params.id, req.body.source, req.body.expectedSource, req.body.expectedParameters)));
+  app.post('/api/projects/:id/builds', async (req, res) => res.status(202).json(await builds.start(req.params.id, req.body.source, req.body.expectedSource, req.body.expectedParameters, req.body.engine)));
   app.get('/api/projects/:id/parameters', async (req, res) => res.json(await parameters.read(req.params.id, req.query.source)));
   app.put('/api/projects/:id/parameters', async (req, res) => {
     const value = await parameters.save(req.params.id, req.body.source, req.body.hash, req.body.values);
@@ -88,6 +97,17 @@ export async function createApp(dataRoot: string, options: { viewport?: Viewport
     catch (error) { throw new HttpError(422, (error as Error).message); }
   });
   app.get('/api/thermal/runtime', async (_req,res) => res.json(await thermal.config()));
+  app.get('/api/thermal/schema',async(_req,res)=>res.json(await thermalEditor.schema()));
+  app.post('/api/projects/:id/thermal/inspections',async(req,res)=>res.status(202).json(await thermalEditor.start(req.params.id,req.body)));
+  app.get('/api/projects/:id/thermal/inspections/:inspection',async(req,res)=>res.json(await thermalEditor.read(req.params.id,req.params.inspection)));
+  app.get('/api/projects/:id/thermal/inspections/:inspection/surface',async(req,res)=>res.type('json').send(await thermalEditor.surface(req.params.id,req.params.inspection)));
+  app.post('/api/projects/:id/thermal/inspections/:inspection/cancel',async(req,res)=>res.json(await thermalEditor.cancel(req.params.id,req.params.inspection)));
+  app.post('/api/projects/:id/thermal/inspections/:inspection/resolve',async(req,res)=>{
+    const abort=new AbortController(),stop=()=>{if(!res.writableEnded)abort.abort();};res.once('close',stop);
+    try{res.json(await thermalEditor.resolve(req.params.id,req.params.inspection,req.body.selection,req.body.surfaceHash,abort.signal));}
+    finally{res.off('close',stop);}
+  });
+  app.post('/api/projects/:id/thermal/inspections/:inspection/validate',async(req,res)=>res.json(await thermalEditor.validate(req.params.id,req.params.inspection,req.body.config)));
   app.post('/api/thermal/runtime/probe', async (req,res) => res.json(await thermal.probe(req.body.executable)));
   app.put('/api/thermal/runtime', async (req,res) => res.json(await thermal.saveRuntime(req.body.executable)));
   app.get('/api/projects/:id/thermal/case', async (req,res) => {
@@ -96,21 +116,31 @@ export async function createApp(dataRoot: string, options: { viewport?: Viewport
     res.json(await jsonRead(file,{}));
   });
   app.put('/api/projects/:id/thermal/case', async (req,res) => {
-    const {source,units,config}=req.body;
+    const {source,units,config,editor}=req.body;
     if(typeof source!=='string'||!['mm','cm','m'].includes(units)||!config||typeof config!=='object'||Array.isArray(config))throw new HttpError(400,'无效工况');
+    if(editor!==undefined&&(!editor||typeof editor!=='object'||Array.isArray(editor)||editor.schema_version!==1||JSON.stringify(editor).length>200000||
+      !['sourceIds','coolingIds'].every(key=>Array.isArray(editor[key])&&editor[key].length<=16&&editor[key].every((id:unknown)=>typeof id==='string'&&id.length<=80))))throw new HttpError(400,'工况编辑信息无效');
     await modify(req.params.id,async()=>{
       await store.project(req.params.id);
       await safePath(store.workspace(req.params.id),source);
       const file=await safePath(store.workspace(req.params.id),'thermal-case.json',false);
       await history.snapshot(req.params.id,'保存热仿真工况前');
-      await jsonWrite(file,{source,units,config});await store.touch(req.params.id);
+      await jsonWrite(file,{source,units,config,...(editor?{editor}:{})});await store.touch(req.params.id);
       await history.snapshot(req.params.id,'保存热仿真工况');
     });
     events.emit(req.params.id,'artifacts_changed',{});res.json({ok:true});
   });
   app.get('/api/projects/:id/thermal',async(req,res)=>res.json(await thermal.list(req.params.id)));
-  app.post('/api/projects/:id/thermal',async(req,res)=>res.status(202).json(await thermal.start(req.params.id,req.body)));
+  app.post('/api/projects/:id/thermal',async(req,res)=>res.status(202).json(await thermal.start(req.params.id,await thermalEditor.prepareRun(req.params.id,req.body))));
+  app.post('/api/projects/:id/thermal/queue',async(req,res)=>res.status(202).json(await thermal.start(req.params.id,await thermalEditor.prepareRun(req.params.id,req.body),true)));
   app.get('/api/projects/:id/thermal/:run',async(req,res)=>res.json(await thermal.read(req.params.id,req.params.run)));
+  app.get('/api/projects/:id/thermal/:run/geometry',async(req,res)=>{
+    res.type('json').send(await thermal.geometry(req.params.id,req.params.run));
+  });
+  app.get('/api/projects/:id/thermal/:run/preview/:frame',async(req,res)=>{
+    if(!/^\d{1,3}$/.test(req.params.frame))throw new HttpError(400,'无效实时帧编号');
+    res.type('application/octet-stream').send(await thermal.previewFrame(req.params.id,req.params.run,Number(req.params.frame)));
+  });
   app.post('/api/projects/:id/thermal/:run/cancel',async(req,res)=>res.json(await thermal.cancel(req.params.id,req.params.run)));
   app.post('/api/projects/:id/thermal/:run/publish',async(req,res)=>res.json(await thermal.publish(req.params.id,req.params.run)));
   app.get('/api/projects/:id/thermal/:run/file',async(req,res)=>{
@@ -265,5 +295,5 @@ export async function createApp(dataRoot: string, options: { viewport?: Viewport
     const status = error.code === 'ENOENT' ? 404 : error.code === 'LIMIT_FILE_SIZE' ? 413 : error.status || 500;
     res.status(status).json({ error: error.code === 'LIMIT_FILE_SIZE' ? '文件不能超过 128 MB' : error.message || '请求失败' });
   });
-  return { parametric, cylinderObjects, cadInspections, structural, app, store, plugins, harness, events, history, builds, thermal };
+  return { optimizations, parametric, cylinderObjects, cadInspections, structural, app, store, plugins, harness, events, history, builds, thermal,thermalEditor };
 }
