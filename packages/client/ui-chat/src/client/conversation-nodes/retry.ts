@@ -5,6 +5,7 @@ import type {
 import type {} from '@deepseek-ai/dsh-llm-retry/types'
 import type { RetryChatData } from '../contract/chat-nodes.ts'
 import { chatNode } from './common.ts'
+import { displayFailure } from './event-projection.ts'
 
 declare module '../contract/chat-nodes.ts' {
   interface ChatNodeDataMap {
@@ -28,6 +29,7 @@ function scheduledNode(match: ConversationMatch): ModelRetryNode | undefined {
     time: match.event.time,
     retryState: 'scheduled',
     ...match.event.data,
+    failure: { ...match.event.data.failure, ...displayFailure(match.event.data.failure, match.event.data.provider) },
   }
 }
 

@@ -258,8 +258,6 @@ export function loadLayeredEnv(
   ])
 }
 
-const bootstrapIncludes = new WeakMap<Context, Entry>()
-
 // The include's YAML dialect (`!!js` scalars become expression nodes the
 // Loader interpolates against each entry's injection-ready context), imported
 // from the include itself so patch parsing and config dumping can never drift
@@ -333,7 +331,7 @@ async function recompose(
   // The rows stopped first, which a failure before the generation applies puts back.
   let stopped: StoppedRow[] = []
   try {
-    const entry = bootstrapIncludes.get(ctx)
+    const entry = ctx.get('loader')?.store.include
     if (entry === undefined) throw new Error(`${binName}: profile reload requires the root Include entry`)
     // Reading the prior state imports nothing, so plugin code does not run before the next resolution publishes.
     const previousFailures = (await inactiveEntries(ctx, false)).map((failure): RecordedFailure => ({
@@ -726,7 +724,7 @@ function groupedDump(
 }
 
 /**
- * Mount and remember the exact root Include entry used by app boot and user patch-layer HMR.
+ * Mount the root Include entry owned by the Loader and used by profile reloads.
  * @param ctx - context carrying an initialized Loader service.
  * @param absoluteConfigPath - absolute YAML or JSON configuration path.
  * @param patches - initial app and user patches, applied in order.
@@ -781,9 +779,7 @@ export async function mountRootInclude(
   const includeId = await ctx.loader.create(rootInclude)
   const loader = ctx.get('loader')
   if (loader === undefined) return undefined
-  const entry = loader.resolve(includeId)
-  bootstrapIncludes.set(ctx, entry)
-  return entry
+  return loader.resolve(includeId)
 }
 
 /** The two process events {@link installFailLoud} turns into a fatal exit. */
@@ -1158,7 +1154,8 @@ export async function auditStartupEntries(
   warn: (line: string) => void = line => void process.stderr.write(line),
 ): Promise<void> {
   const failures = await inactiveEntries(ctx)
-  const required = new Set(failures.filter(({ entry }) => entry === bootstrapIncludes.get(ctx)
+  const rootInclude = ctx.get('loader')?.store.include
+  const required = new Set(failures.filter(({ entry }) => entry === rootInclude
     || requiredStartupEntryIds.has(entry.options.id)).map(({ entry }) => entry))
   if (required.size > 0) {
     throw new StartupError(startupDiagnostic(binName, failures, required), failures.map(({ entry, outcome }) => ({

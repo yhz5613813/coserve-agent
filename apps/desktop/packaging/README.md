@@ -30,6 +30,8 @@ Build Desktop installers locally or through Windows or macOS Actions, choose dep
 
 ## Choose a build path
 
+For a local Windows portable directory, set `DSH_DESKTOP_PORTABLE=1` and run `pnpm --dir apps/desktop run package:win:x64:unsigned --dir`. This mode needs no release configuration or installer compiler and omits update services. Keep the generated `coserve-portable` marker beside `CoServe AI.exe`; it places desktop settings, conversations and CAStudio projects in the adjacent `data` directory. Extract the complete package to a writable folder before launching, and copy that folder with `data` when moving an existing installation.
+
 Run local commands from the repository root after installing locked dependencies. Use platform-specific commands for a local build, or platform Actions for the registered self-hosted runner. Choose test or production deployment independently from signed or unsigned mode. Read [Windows signing and runner operations](../windows-signing/README.md#trust-and-isolation) before any Windows signed build or shared-runner use. Installation is separate from packaging; [publication](../publishing/README.md) is a further explicit operation.
 
 Set `DSH_DESKTOP_PACKAGE_CACHE_DIR` to an absolute build-cache directory for reuse across checkouts; see [cache configuration and lifecycle](#desktop-runtime-preparation).

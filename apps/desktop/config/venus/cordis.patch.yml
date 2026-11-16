@@ -1,0 +1,39 @@
+- id: llm-pi-ai
+  name: '@deepseek-ai/dsh-llm-pi-ai'
+  config:
+    providers:
+      venus:
+        displayName: Venus
+        apiKeyEnv: VENUS_API_KEY
+        api: openai-completions
+        baseURL: https://v2.open.venus.woa.com/llmproxy
+        models:
+          - id: deepseek-v4.1-flash
+            name: DeepSeek-V4.1-Flash
+            contextWindow: 1048576
+      venus-responses:
+        displayName: Venus GPT
+        apiKeyEnv: VENUS_API_KEY
+        api: openai-responses
+        baseURL: https://v2.open.venus.woa.com/llmproxy/v1
+        headers:
+          Venus-Sticky-Routing: token
+        reasoning: low
+        transport: sse
+        models:
+          - id: gpt-6-luna
+            name: GPT-6-Luna
+            contextWindow: 1048576
+            maxTokens: 131072
+            input:
+              - text
+              - image
+            reasoningEfforts:
+              low: low
+              medium: medium
+              high: high
+- id: agent-default-model
+  name: '@deepseek-ai/dsh-agent-default-model'
+  config:
+    provider: venus
+    model: deepseek-v4.1-flash

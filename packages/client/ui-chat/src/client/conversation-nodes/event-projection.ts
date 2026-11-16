@@ -144,9 +144,13 @@ export interface DisplayFailure {
 /**
  * Convert a durable failure to locale-independent fields safe for Chat.
  * @param failure - Failure preserved by a Session event.
+ * @param provider - Provider that issued the failed request.
  * @returns Sanitized message and optional stable provider code.
  */
-export function displayFailure(failure: unknown): DisplayFailure {
+export function displayFailure(failure: unknown, provider?: string): DisplayFailure {
+  if (provider === 'venus' || provider?.startsWith('venus-')) {
+    return { code: 'VENUS_NETWORK', message: '' }
+  }
   if (failure === null || typeof failure !== 'object') return { message: String(failure) }
   const record = failure as { code?: unknown; message?: unknown }
   const code = typeof record.code === 'string' ? record.code : undefined

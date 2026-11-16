@@ -40,6 +40,7 @@ import type {
 import {
   attributionHeaders,
   contentHasImage,
+  errorChain,
   LlmAdapter,
   LlmError,
   ReasoningEffortId,
@@ -457,8 +458,20 @@ export class PiAiAdapter extends LlmAdapter {
             maxBytes: profile.requestImageMaxBytes,
           },
         }, onReplayDegrade, updates.systemPromptUpdate === 'in-history')
+      let fetchFailure: unknown
+      const requestFetch: typeof globalThis.fetch = async (input, init) => {
+        try {
+          const response = await globalThis.fetch(input, init)
+          fetchFailure = undefined
+          return response
+        } catch (error) {
+          fetchFailure = error
+          throw error
+        }
+      }
       const events = snapshot.models.streamSimple(model, context, {
         ...profileOptions(profile, reasoning, apiKey),
+        ...model.api === 'openai-completions' ? { fetch: requestFetch } : {},
         ...options.temperature === undefined ? {} : { temperature: options.temperature },
         ...options.maxTokens === undefined ? {} : { maxTokens: options.maxTokens },
         ...options.sessionId === undefined ? {} : { sessionId: String(options.sessionId) },
@@ -474,7 +487,24 @@ export class PiAiAdapter extends LlmAdapter {
             exhausted = true
             return
           }
-          yield result.value
+          const chunk = result.value
+          if (chunk.type === 'finish' && chunk.reason.kind === 'error' && fetchFailure !== undefined) {
+            // The SDK replaces fetch failures with "Connection error." and pi-ai
+            // drops their cause. Keep the original detail in the durable failure.
+            const detail = errorChain(fetchFailure)
+            yield {
+              ...chunk,
+              reason: {
+                ...chunk.reason,
+                failure: {
+                  ...chunk.reason.failure,
+                  message: `${chunk.reason.failure.message}: ${detail}`,
+                },
+              },
+            }
+          } else {
+            yield chunk
+          }
         }
       } finally {
         if (!exhausted) {

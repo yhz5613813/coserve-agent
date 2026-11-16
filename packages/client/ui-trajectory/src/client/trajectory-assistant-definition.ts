@@ -8,7 +8,7 @@ import type { StreamChunk } from '@deepseek-ai/dsh-llm'
 import { assistantStreamFirstTokenTime } from '@deepseek-ai/dsh-llm/assistant-stream'
 import type { SessionEvent } from '@deepseek-ai/dsh-session/types'
 import { trajectoryNode } from './trajectory-definition-common.ts'
-import type { TrajectoryPartialAssistant } from './trajectory-contract.ts'
+import type { TrajectoryPartialAssistant, TrajectoryRequestHeaderState } from './trajectory-contract.ts'
 import {
   displayFailure, emptyAssistantBlock, isTokenDelta, toAssistantBlock, toAssistantBlocks,
 } from './trajectory-event-projection.ts'
@@ -365,7 +365,7 @@ const trajectoryAssistantDefinition: ConversationNodeDefinition<AssistantState> 
     if (match.event.type === 'step/end') return { ...context.state, stepEnd: match }
     if (match.event.type !== 'llm/retry') return context.state
     const data = match.event.data
-    const failure = displayFailure(data.failure)
+    const failure = displayFailure(data.failure, data.provider)
     return {
       ...initialState(
         context.state.turn,
@@ -432,12 +432,13 @@ const trajectoryTurnEndDefinition: ConversationNodeDefinition<TurnEndState> = {
   match: event => event.type === 'turn/end'
     ? { id: String(event.seq), role: 'start' }
     : null,
-  start: (_context, match) => {
+  start: (_context, match, reader) => {
     if (match.event.type !== 'turn/end') {
       throw new Error('trajectory-turn-end start requires turn/end')
     }
     const reason = match.event.data.reason
-    const failure = reason.kind === 'error' ? displayFailure(reason.error) : undefined
+    const provider = reader.previous<TrajectoryRequestHeaderState>('trajectory-request-header')?.state.prompt.config.provider
+    const failure = reason.kind === 'error' ? displayFailure(reason.error, provider) : undefined
     return {
       turn: match.event.data.turn,
       seq: match.event.seq,

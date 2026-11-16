@@ -1,6 +1,6 @@
 import type { Context } from '@deepseek-ai/cordis'
 import type {
-  ConversationMatch, ConversationNodeContext, ConversationNodeDefinition, TurnErrorNode,
+  ConversationMatch, ConversationNodeContext, ConversationNodeDefinition, RequestPromptInspection, TurnErrorNode,
 } from '@deepseek-ai/dsh-client-ui-conversation/client'
 import type { TurnEndReason } from '@deepseek-ai/dsh-session/types'
 import { chatNode } from './common.ts'
@@ -50,25 +50,17 @@ function endFailure(reason: TurnEndReason): { readonly message: string; readonly
   }
 }
 
-function failureFrom(match: ConversationMatch): TurnErrorState['failure'] | undefined {
+function failureFrom(match: ConversationMatch, provider?: string): TurnErrorState['failure'] | undefined {
   if (match.event.type !== 'turn/end') return undefined
   const failure = endFailure(match.event.data.reason)
   if (failure === undefined) return undefined
-  const display = displayFailure(failure)
+  const display = displayFailure(failure, match.event.data.reason.kind === 'error' ? provider : undefined)
   return {
     seq: match.event.seq,
     time: match.event.time,
     message: display.message,
     ...(display.code === undefined ? {} : { code: display.code }),
   }
-}
-
-function fallbackState(context: ConversationNodeContext<TurnErrorState>): TurnErrorState | undefined {
-  const end = context.matches.find(match => failureFrom(match) !== undefined)
-  if (end?.event.type !== 'turn/end') return undefined
-  const failure = failureFrom(end)
-  if (failure === undefined) return undefined
-  return { turn: end.event.data.turn, failure }
 }
 
 /**
@@ -80,22 +72,20 @@ export const turnErrorDefinition: ConversationNodeDefinition<TurnErrorState> = {
   kind: 'turn-error',
   target: 'chat',
   match: (event) => {
-    if (event.type === 'turn/start') return { id: String(event.data.turn), role: 'start' }
     if (event.type === 'turn/end' && endFailure(event.data.reason) !== undefined) {
-      return { id: String(event.data.turn), role: 'update' }
+      return { id: String(event.data.turn), role: 'start' }
     }
     return null
   },
-  start: (_context, match) => {
-    if (match.event.type !== 'turn/start') throw new Error('turn-error start requires turn/start')
-    return { turn: match.event.data.turn }
+  start: (_context, match, reader) => {
+    if (match.event.type !== 'turn/end') throw new Error('turn-error start requires turn/end')
+    const provider = reader.previous<RequestPromptInspection>('request-prompt')?.state.prompt.config.provider
+    const failure = failureFrom(match, provider)
+    return { turn: match.event.data.turn, ...(failure === undefined ? {} : { failure }) }
   },
-  update: (context, match) => {
-    const failure = failureFrom(match)
-    return failure === undefined ? context.state : { ...context.state, failure }
-  },
+  update: context => context.state,
   buildViewNode: (context) => {
-    const state = context.state ?? fallbackState(context)
+    const state = context.state
     if (state?.failure === undefined) return null
     const failure = state.failure
     const node: TurnErrorNode = {

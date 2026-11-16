@@ -30,6 +30,8 @@ description: "在本地或 Windows／macOS Actions 中生成 Desktop 安装包�
 
 ## 选择打包方式
 
+Windows 免安装目录使用 `DSH_DESKTOP_PORTABLE=1`，然后运行 `pnpm --dir apps/desktop run package:win:x64:unsigned --dir`。该模式无需发布配置或安装程序编译器，不包含更新服务。保留 `CoServe AI.exe` 旁的 `coserve-portable` 标记文件，桌面设置、会话和 CAStudio 项目会保存在相邻的 `data` 目录。启动前将整个包解压到可写目录；迁移已有数据时连同 `data` 一起复制整个目录。
+
 安装锁定依赖后，从仓库根目录运行本地命令。本地构建使用平台命令，已注册的自托管 runner 使用对应平台的 Actions。test/production 部署与 signed/unsigned 模式分别选择。任何 Windows 签名构建或共享 runner 使用前，先阅读 [Windows 签名与 runner 运维](../windows-signing/README.zh.md#trust-and-isolation)。安装与打包分开进行；[发布](../publishing/README.zh.md)还需要单独的显式操作。
 
 将 `DSH_DESKTOP_PACKAGE_CACHE_DIR` 设为绝对构建缓存目录以跨 checkout 复用；详见[缓存配置与生命周期](#desktop-runtime-preparation)。

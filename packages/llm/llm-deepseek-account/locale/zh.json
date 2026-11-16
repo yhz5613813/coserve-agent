@@ -1,6 +1,6 @@
 {
   "meta": {
-    "title": "CoServe AI 账号模型接入",
-    "description": "使用已登录的 CoServe AI 账号连接模型服务。"
+    "title": "DeepSeek 账号模型接入",
+    "description": "使用已登录的 DeepSeek 账号连接模型服务。"
   }
 }

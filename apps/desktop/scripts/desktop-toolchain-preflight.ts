@@ -81,7 +81,7 @@ export async function probeDesktopToolchain(
   const failures: DesktopToolchainProbeFailure[] = []
   const tar = await probeTar()
   if (tar !== undefined) failures.push({ tool: 'tar', detail: tar })
-  if (platform === 'win32') failures.push(...await probeWindowsInstallerToolchain(environment))
+  if (platform === 'win32' && environment.DSH_DESKTOP_PORTABLE !== '1') failures.push(...await probeWindowsInstallerToolchain(environment))
   return failures
 }
 

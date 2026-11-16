@@ -9,6 +9,8 @@ English | [中文](README.zh.md)
 
 ## Summary
 
+Profile reloads resolve the reserved `include` entry from the running Loader. The entry is owned by that Loader, so the launcher and settings editor share it even when they import separate instances of the boot module.
+
 `dsh-app-boot` is the shared Loader boot library behind `dsh` profiles, including the CLI packaged by the Python runtime wheel. It loads environment layers, composes profile bundles and patches, boots every plugin, and returns the running app or identifies the failed plugin and cause. Product applications use the `dsh` launcher instead of publishing separate bins; direct-config helpers remain only for lower-level embedders and tests. You can preview the effective configuration before booting, configure HMR through profile YAML, and let a terminal-owning app restore its terminal before a fatal exit.
 
 ## Table of Contents

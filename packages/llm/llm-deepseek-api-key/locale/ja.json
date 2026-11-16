@@ -1,6 +1,6 @@
 {
   "meta": {
-    "title": "CoServe AI API キー接続",
-    "description": "API キーを使用して CoServe AI モデルサービスに接続します。"
+    "title": "DeepSeek API キー接続",
+    "description": "API キーを使用して DeepSeek モデルサービスに接続します。"
   }
 }

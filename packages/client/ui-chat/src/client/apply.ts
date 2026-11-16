@@ -111,6 +111,10 @@ export function apply(ctx: Context): void {
             if (event.type !== 'turn/end' || event.data.reason.kind !== 'error') continue
             const { code } = event.data.reason.error
             if (quotaNoticeHolds.size > 0 || (code !== 'QUOTA' && code !== 'ACCOUNT_QUOTA')) continue
+            const header = binding.eventSource.getSnapshot().entries.findLast(entry =>
+              entry.event.seq < event.seq && entry.event.type === 'request/header')?.event
+            const provider = header?.type === 'request/header' ? header.data.header.config.provider : undefined
+            if (provider === 'venus' || provider?.startsWith('venus-')) continue
             quotaNotice.set({ code, seq: ++quotaNoticeSeq })
           }
         })

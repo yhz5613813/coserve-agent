@@ -764,6 +764,7 @@ function requestErrorMessage(
   request: Pick<TrajectoryRequestNumber, 'error' | 'errorCode'>,
   t: TrajectoryTranslate,
 ): string | undefined {
+  if (request.errorCode === 'VENUS_NETWORK') return t('details.failure.venusNetwork')
   if (request.errorCode === 'AUTH') return t('details.failure.auth')
   if (request.error === COMPACTION_INTERRUPTED_ERROR) return t('layout.compactionInterrupted')
   return request.error

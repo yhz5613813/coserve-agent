@@ -1,6 +1,6 @@
 {
   "meta": {
-    "title": "CoServe AI Kontomodellzugriff",
-    "description": "Verwenden Sie das angemeldete CoServe AI-Konto, um eine Verbindung zum Modelldienst herzustellen."
+    "title": "DeepSeek Kontomodellzugriff",
+    "description": "Verwenden Sie das angemeldete DeepSeek-Konto, um eine Verbindung zum Modelldienst herzustellen."
   }
 }

@@ -70,7 +70,7 @@ export function apply(ctx: Context, config: Config): void {
     }
     return { ...resolved.protocol, models: result.resolution, catalog: result }
   }
-  const entry = { provider: PROVIDER, displayName: 'CoServe AI Account', settingsNs: ctx.fiber.entry?.options.id ?? name, settingsPath: [] }
+  const entry = { provider: PROVIDER, displayName: 'DeepSeek Account', settingsNs: ctx.fiber.entry?.options.id ?? name, settingsPath: [] }
   const directory = ctx.llm.registerConfigurableProviders([entry])
   let reportedError: string | undefined
   /** Publish override diagnostics on the provider directory. */
@@ -84,7 +84,7 @@ export function apply(ctx: Context, config: Config): void {
     return connection
   }
   registerDeepSeekProvider<AccountConnection>(ctx, PROVIDER, {
-    providerName: 'CoServe AI Account',
+    providerName: 'DeepSeek Account',
     options: () => connectionOf(catalog.current()),
     connect: async signal => connectionOf(await catalog.view(settings().catalog, signal)),
     resolveAuth,

@@ -34,6 +34,20 @@ export function localMacOSPackageEnvironment(environment = process.env) {
 }
 
 /**
+ * Select a Windows portable build without release services or signing credentials.
+ * @param {NodeJS.ProcessEnv} environment Parent environment for build tools and networking.
+ * @returns {NodeJS.ProcessEnv} Local unsigned configuration with no update policy.
+ */
+export function localWindowsPortablePackageEnvironment(environment = process.env) {
+  return {
+    ...Object.fromEntries(Object.entries(environment).filter(([name]) => !AMBIENT_RELEASE_SETTING.test(name))),
+    DSH_DESKTOP_APP_ID: 'ai.coserve.agent.portable',
+    DSH_DESKTOP_UNSIGNED: '1',
+    DSH_DESKTOP_PORTABLE: '1',
+  }
+}
+
+/**
  * Read a machine preset when selected, otherwise the target's required dotenv; no ambient release fallback.
  * PACKAGE_MACOS_ZIP_COMPRESSION_LEVEL overrides the Mac file setting with 3 or 7; an empty value is invalid.
  * Any defined Mac ZIP override rejects Windows, including an empty value; nonempty Windows overrides reject macOS.
@@ -121,7 +135,9 @@ export function validateDesktopPackageEnvironment(environment, target, options =
   resolveDesktopTargetBuildPaths(environment, target.platform, target.arch)
   resolveDesktopAppId(environment)
   resolveNpmRegistry(environment)
-  if (target.platform !== 'darwin' || !options.unsigned) resolveDesktopPolicyEnvironment(environment)
+  const portable = environment.DSH_DESKTOP_PORTABLE === '1'
+  if (portable && (target.platform !== 'win32' || !options.unsigned)) throw new Error('desktop package: portable mode requires unsigned Windows packaging')
+  if (!portable && (target.platform !== 'darwin' || !options.unsigned)) resolveDesktopPolicyEnvironment(environment)
   if (target.platform === 'darwin') resolveMacOSPackageSettings(environment)
   else resolveWindowsPackageSettings(environment)
   if (options.unsigned) return

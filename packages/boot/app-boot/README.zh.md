@@ -9,6 +9,8 @@ kind: "package-library"
 
 ## 概述
 
+配置重载直接从正在运行的 Loader 中取得保留的 `include` 入口。该入口由 Loader 持有，因此启动器和设置编辑器即使导入了不同的启动模块实例，也能访问同一个入口。
+
 `dsh-app-boot` 是 `dsh` profile（包括 Python 运行时 wheel 包所含的 CLI（命令行界面））背后的共享 Loader 启动库。它加载环境层、组合 profile 组合包与 patch、启动每个插件，再返回运行中的应用，或指出失败插件与原因。产品应用使用 `dsh` launcher 而不发布单独 bin；直接配置 helper 只保留给低层嵌入方与测试。你还可以在启动前预览生效配置，按 profile 选择实时或仅启动时应用 patch，并让持有终端的应用在致命退出前恢复终端。
 
 ## 目录

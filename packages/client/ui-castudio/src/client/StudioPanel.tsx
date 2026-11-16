@@ -91,7 +91,7 @@ export function StudioPanel(props: StudioPanelProps) {
   }, [state.messages])
   useEffect(() => { following.current = true }, [state.projectId])
   const activeModel = state.status ? `${state.status.settings.provider}/${state.status.settings.model}` : ''
-  const modelName = state.status?.models.find(model => `${model.provider}/${model.id}` === activeModel)?.name.replace(/deepseek/ig, 'CoServe AI') ?? t('noModel')
+  const modelName = state.status?.models.find(model => `${model.provider}/${model.id}` === activeModel)?.name ?? t('noModel')
   const projectName = state.projects.find(project => project.id === state.projectId)?.name ?? t('newName')
   const empty = state.phase === 'ready' && !state.messages.length
   return <section className={css.panel} aria-label={t('title')}>
@@ -147,7 +147,7 @@ export function StudioPanel(props: StudioPanelProps) {
                 anchor={<button className={css.plusButton} title={t('moreActions')} aria-label={t('moreActions')} aria-haspopup="menu" aria-expanded={menu === 'actions'} disabled={state.pending} onClick={() => setMenu(menu === 'actions' ? null : 'actions')}><IconPlusOutlineRegular size={18} /></button>} />
               <div className={css.trailing}>
                 <Menu open={menu === 'model'} onClose={() => setMenu(null)} side="top" align="end" portal compact selectedId={activeModel}
-                  items={state.status?.models.map(model => ({ id: `${model.provider}/${model.id}`, label: model.name.replace(/deepseek/ig, 'CoServe AI') })) ?? []}
+                  items={state.status?.models.map(model => ({ id: `${model.provider}/${model.id}`, label: model.name })) ?? []}
                   onSelect={(id) => { setMenu(null); props.selectModel(id) }}
                   anchor={<button className={css.modelChip} title={modelName} aria-label={t('model')} aria-haspopup="menu" aria-expanded={menu === 'model'} disabled={state.busy || state.pending || !state.status?.models.length} onClick={() => setMenu(menu === 'model' ? null : 'model')}><span>{modelName}</span><IconChevronDownOutlineRegular size={12} /></button>} />
                 <button className={css.primaryButton} title={state.busy ? t('stop') : t('send')} aria-label={state.busy ? t('stop') : t('send')}
