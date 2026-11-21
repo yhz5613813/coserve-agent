@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "轨迹训练数据导出器",
+    "description": "将已保存的会话轨迹直接导出为可训练 Agent 数据集格式（支持 OpenAI Chat SFT、ShareGPT / LLaMA-Factory、Step-wise RL/GRPO 及完整结构化轨迹 JSONL）。"
+  }
+}

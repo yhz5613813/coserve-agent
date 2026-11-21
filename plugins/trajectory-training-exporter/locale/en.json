@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "Trajectory training exporter",
+    "description": "Export saved session trajectories into trainable agent datasets (OpenAI Chat SFT, ShareGPT, Step-wise RL/GRPO, and raw trajectory JSONL)."
+  }
+}
