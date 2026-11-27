@@ -10,9 +10,9 @@ afterEach(() => { for (const root of roots.splice(0)) rmSync(root, { recursive: 
 
 describe('portable CAD project folder', () => {
   it('defaults to drive D: when it exists, otherwise the system drive', () => {
-    expect(defaultProjectsFolder(path => path === 'D:\\Coserve CAD')).toBe('D:\\Coserve CAD')
-    expect(defaultProjectsFolder(() => false, 'E:')).toBe('E:\\Coserve CAD')
-    expect(defaultProjectsFolder(() => false)).toBe('C:\\Coserve CAD')
+    expect(defaultProjectsFolder(path => path === 'D:\\CoServe AI')).toBe('D:\\CoServe AI')
+    expect(defaultProjectsFolder(() => false, 'E:')).toBe('E:\\CoServe AI')
+    expect(defaultProjectsFolder(() => false)).toBe('C:\\CoServe AI')
   })
 
   it.each([
@@ -29,7 +29,7 @@ describe('portable CAD project folder', () => {
     expect(projectsFolderProblem(folder, execPath)).toBe(problem)
   })
 
-  it.each(['D:\\Coserve CAD', 'E:\\cad\\', 'D:\\Tools\\Coserve CAD', `D:\\${'a'.repeat(77)}`])('accepts %s', (folder) => {
+  it.each(['D:\\CoServe AI', 'E:\\cad\\', 'D:\\Tools\\CoServe AI', `D:\\${'a'.repeat(77)}`])('accepts %s', (folder) => {
     expect(projectsFolderProblem(folder, execPath)).toBeUndefined()
   })
 
@@ -39,7 +39,7 @@ describe('portable CAD project folder', () => {
     mkdirSync(join(root, 'install', 'app'), { recursive: true })
     const portableExec = join(root, 'install', 'app', 'Coserve.exe')
     const folder = join(root, 'cad')
-    const environment: NodeJS.ProcessEnv = { STUDIO_PROJECTS_DIR: 'D:\\Coserve CAD' }
+    const environment: NodeJS.ProcessEnv = { STUDIO_PROJECTS_DIR: 'D:\\CoServe AI' }
     const restart = vi.fn()
     expect(await saveProjectsFolder(folder, { execPath: portableExec, environment, restart })).toBeUndefined()
     expect(existsSync(folder)).toBe(true)
@@ -52,11 +52,11 @@ describe('portable CAD project folder', () => {
     const root = mkdtempSync(join(tmpdir(), 'pf-'))
     roots.push(root)
     const portableExec = join(root, 'install', 'app', 'Coserve.exe')
-    const environment: NodeJS.ProcessEnv = { STUDIO_PROJECTS_DIR: 'D:\\Coserve CAD' }
+    const environment: NodeJS.ProcessEnv = { STUDIO_PROJECTS_DIR: 'D:\\CoServe AI' }
     const restart = vi.fn()
     expect(await saveProjectsFolder(join(root, 'install', 'projects'), { execPath: portableExec, environment, restart })).toBe('install-directory')
     expect(existsSync(join(root, 'install'))).toBe(false)
-    expect(environment.STUDIO_PROJECTS_DIR).toBe('D:\\Coserve CAD')
+    expect(environment.STUDIO_PROJECTS_DIR).toBe('D:\\CoServe AI')
     expect(restart).not.toHaveBeenCalled()
   })
 })

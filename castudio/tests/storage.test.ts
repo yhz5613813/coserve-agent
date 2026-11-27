@@ -30,13 +30,13 @@ test('CadFlow is bundled and cannot be installed, disabled or removed as an exte
 test('a separate projects directory holds project folders outside the data root', async () => {
   const { root, cleanup } = await fixture();
   try {
-    const store = new Store(path.join(root, 'data'), path.join(root, 'D', 'Coserve CAD'));
+    const store = new Store(path.join(root, 'data'), path.join(root, 'D', 'CoServe AI'));
     await store.init();
     const project = await store.createProject('Bracket');
     assert.equal(project.id, 'bracket');
-    assert.equal(store.workspace(project.id), path.join(root, 'D', 'Coserve CAD', 'bracket'));
-    await fs.access(path.join(root, 'D', 'Coserve CAD', 'bracket', 'artifacts'));
-    await fs.access(path.join(root, 'D', 'Coserve CAD', '.coserve', 'bracket', 'project.json'));
+    assert.equal(store.workspace(project.id), path.join(root, 'D', 'CoServe AI', 'bracket'));
+    await fs.access(path.join(root, 'D', 'CoServe AI', 'bracket', 'artifacts'));
+    await fs.access(path.join(root, 'D', 'CoServe AI', '.coserve', 'bracket', 'project.json'));
     await assert.rejects(fs.access(path.join(root, 'data', 'projects')));
     assert.deepEqual((await store.records()).map(p => p.id), [project.id]);
     assert.deepEqual([(await store.createProject('Bracket')).id, (await store.createProject('散热器')).id, (await store.createProject('外壳')).id], ['bracket-2', 'project', 'project-2']);
@@ -162,7 +162,7 @@ test('scanned files carry a role category and a short detail that tells same-nam
 test('records skip non-project entries of the projects directory but still surface corrupt records', async () => {
   const { root, cleanup } = await fixture();
   try {
-    const store = new Store(path.join(root, 'data'), path.join(root, 'D', 'Coserve CAD'));
+    const store = new Store(path.join(root, 'data'), path.join(root, 'D', 'CoServe AI'));
     await store.init();
     const project = await store.createProject('Bracket');
     await fs.writeFile(path.join(store.projectsDir, 'desktop.ini'), '[.ShellClassInfo]');

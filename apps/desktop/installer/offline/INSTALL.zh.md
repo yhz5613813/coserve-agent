@@ -1,4 +1,4 @@
-# Coserve CAD 桌面版：离线安装说明
+# CoServe AI 桌面版：离线安装说明
 
 `CoServe-AI-<版本>-win-x64-offline-unsigned.exe` 是单文件安装程序，包含运行所需的全部依赖，安装和使用都不需要联网，适合内网部署。支持 Windows 10 1809 及以上、Windows 11、Windows Server 2019/2022/2025（x64）。
 
@@ -6,11 +6,11 @@
 
 1. 将安装程序复制到本机，可先用同名 `.sha256` 文件核对完整性。
 2. 双击运行，确认一次管理员权限（用于按需安装 VC++ 运行库、开启长路径支持）。
-3. 选择安装位置，默认 `C:\CoserveCAD`。安装位置须为英文路径，不含空格，不超过 40 个字符；需要约 12 GB 磁盘空间。
+3. 选择安装位置，默认 `C:\CoServeAI`。安装位置须为英文路径，不含空格，不超过 40 个字符；需要约 12 GB 磁盘空间。
 4. 组件页可取消“热仿真”（约 3 GB），其余为必装。
 5. 完成后启动，选择“使用 API Key”，填写 API Key 和 Base URL（内网模型网关地址，例如 `http://10.0.0.8:8000`）。Base URL 留空则使用默认地址。
 
-静默安装：`CoServe-AI-<版本>-win-x64-offline-unsigned.exe /VERYSILENT /DIR=D:\CoserveCAD`；可加 `/COMPONENTS=main` 不装热仿真，加 `/TASKS=desktopicon` 创建桌面快捷方式。
+静默安装：`CoServe-AI-<版本>-win-x64-offline-unsigned.exe /VERYSILENT /DIR=D:\CoServeAI`；可加 `/COMPONENTS=main` 不装热仿真，加 `/TASKS=desktopicon` 创建桌面快捷方式。
 
 ## 数据与端口
 
@@ -21,7 +21,7 @@
 ## 升级与卸载
 
 - 升级：先从托盘菜单退出应用，再运行新版本安装程序，安装位置沿用原目录；`app\data` 自动保留。
-- 卸载：在“设置 > 应用”中卸载“Coserve CAD”。卸载时会询问是否删除项目数据，默认保留。
+- 卸载：在“设置 > 应用”中卸载“CoServe AI”。卸载时会询问是否删除项目数据，默认保留。
 
 ## 常见问题
 

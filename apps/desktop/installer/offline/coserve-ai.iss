@@ -1,5 +1,5 @@
-﻿; Coserve CAD offline installer (Inno Setup 7). One setup exe carries the desktop app and every runtime; installing needs no network.
-; Build: ISCC.exe /DAppVersion=<version> /DPayload=<dir> coserve-cad.iss, where <dir> holds app\, runtime\python\, runtime\calculix\, runtime\thermal\ and vc_redist.x64.exe.
+﻿; CoServe AI offline installer (Inno Setup 7). One setup exe carries the desktop app and every runtime; installing needs no network.
+; Build: ISCC.exe /DAppVersion=<version> /DPayload=<dir> coserve-ai.iss, where <dir> holds app\, runtime\python\, runtime\calculix\, runtime\thermal\ and vc_redist.x64.exe.
 ; The wizard is a single page in the CoServe AI installer layout: brand, install button, optional install location, progress, launch.
 #ifndef AppVersion
   #error Pass /DAppVersion=<version>
@@ -7,7 +7,7 @@
 #ifndef Payload
   #error Pass /DPayload=<payload directory>
 #endif
-#define AppName "Coserve CAD"
+#define AppName "CoServe AI"
 #define AppExe "CoServe AI.exe"
 
 [Setup]
@@ -17,7 +17,7 @@ AppVersion={#AppVersion}
 AppVerName={#AppName} {#AppVersion}
 AppPublisher=Coserve
 ; Python, CUDA and gmsh need a short ASCII path without spaces, so the default avoids Program Files and the user profile.
-DefaultDirName={sd}\CoserveCAD
+DefaultDirName={sd}\CoServeAI
 DisableWelcomePage=yes
 DisableDirPage=yes
 DisableProgramGroupPage=yes
@@ -30,7 +30,7 @@ Compression=lzma2/max
 SolidCompression=yes
 LZMANumBlockThreads=8
 OutputBaseFilename=CoServe-AI-{#AppVersion}-win-x64-offline-unsigned
-SetupIconFile=coserve-cad.ico
+SetupIconFile=coserve-ai.ico
 UninstallDisplayName={#AppName}
 UninstallDisplayIcon={app}\app\{#AppExe}
 WizardStyle=modern light windows11 hidebevels
@@ -46,7 +46,7 @@ Name: "full"; Description: "完整安装"
 Name: "custom"; Description: "自定义安装"; Flags: iscustom
 
 [Components]
-Name: "main"; Description: "Coserve CAD 应用、CadFlow 内核、参数化编辑器、结构仿真（CalculiX）"; Types: full custom; Flags: fixed
+Name: "main"; Description: "CoServe AI 应用、CadFlow 内核、参数化编辑器、结构仿真（CalculiX）"; Types: full custom; Flags: fixed
 Name: "thermal"; Description: "热仿真（ThermoForge 与 CUDA 运行库；没有 NVIDIA 显卡时使用 CPU）"; Types: full
 
 [Tasks]
@@ -126,7 +126,7 @@ function DirError(Dir: String): String;
 begin
   Result := '';
   if not (AsciiPath(Dir) and (Length(Dir) <= 40) and (Pos(':\', Dir) = 2)) then
-    Result := '安装位置须为本地磁盘上的英文路径，不含空格、不是磁盘根目录，且不超过 40 个字符，例如 C:\CoserveCAD 或 D:\CoserveCAD。';
+    Result := '安装位置须为本地磁盘上的英文路径，不含空格、不是磁盘根目录，且不超过 40 个字符，例如 C:\CoServeAI 或 D:\CoServeAI。';
 end;
 
 procedure Place(Control: TControl; X, Y, W, H: Integer);
@@ -343,7 +343,7 @@ begin
     if not Exec(ExpandConstant('{tmp}\vc_redist.x64.exe'), '/install /quiet /norestart', '', SW_HIDE, ewWaitUntilTerminated, Code) then
       Fail('无法运行 Microsoft VC++ 运行库安装程序：' + SysErrorMessage(Code))
     else if (Code <> 0) and (Code <> 1638) and (Code <> 3010) then
-      Fail('Microsoft VC++ 运行库安装失败（退出码 ' + IntToStr(Code) + '）。请以管理员身份手动运行安装包中的 vc_redist.x64.exe 后再启动 Coserve CAD。');
+      Fail('Microsoft VC++ 运行库安装失败（退出码 ' + IntToStr(Code) + '）。请以管理员身份手动运行安装包中的 vc_redist.x64.exe 后再启动 CoServe AI。');
   end;
 end;
 

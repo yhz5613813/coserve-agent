@@ -15,7 +15,7 @@ robocopy "$Payload\app\resources\castudio\resources\castudio-runtime\castudio_ru
 Copy-Item "$Build\tools\vc_redist.x64.exe" "$Payload\vc_redist.x64.exe" -Force
 $version = (Get-Content "$Build\src\apps\desktop\package.json" -Raw | ConvertFrom-Json).version
 New-Item -ItemType Directory -Force "$Build\dist" | Out-Null
-& 'F:\code\CADFlow\tools\inno\ISCC.exe' /Q "/DAppVersion=$version" "/DPayload=$Payload" "/O$Build\dist" "$Build\installer\coserve-cad.iss"; Must 'ISCC'
+& 'F:\code\CADFlow\tools\inno\ISCC.exe' /Q "/DAppVersion=$version" "/DPayload=$Payload" "/O$Build\dist" "$Build\installer\coserve-ai.iss"; Must 'ISCC'
 $setup = Get-Item "$Build\dist\CoServe-AI-$version-win-x64-offline-unsigned.exe"
 '{0}  {1}' -f (Get-FileHash $setup.FullName -Algorithm SHA256).Hash.ToLower(), $setup.Name | Set-Content "$($setup.FullName).sha256" -Encoding ASCII
 '{0} {1:N0} MB' -f $setup.Name, ($setup.Length / 1MB)

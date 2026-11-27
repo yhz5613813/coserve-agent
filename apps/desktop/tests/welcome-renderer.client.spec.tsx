@@ -113,13 +113,13 @@ describe('desktop welcome presentation', () => {
   })
 
   it('shows the collapsed CAD project folder, applies a valid choice, and keeps it after an invalid one', async () => {
-    const view = mount('zh-CN', 'setup', 'D:\\Coserve CAD')
+    const view = mount('zh-CN', 'setup', 'D:\\CoServe AI')
     await vi.waitFor(() => { expect(view.document.querySelector('#projects-folder')).not.toBeNull() })
     const row = view.document.querySelector<HTMLDetailsElement>('#projects-folder')!
     const current = view.document.querySelector<HTMLInputElement>('#projects-folder-input')!
     expect(row.open).toBe(false)
     expect(row.querySelector('summary')!.textContent).toBe(view.api.messages.welcomeProjectsFolder)
-    expect(current.value).toBe('D:\\Coserve CAD')
+    expect(current.value).toBe('D:\\CoServe AI')
     expect(view.document.querySelector('#projects-folder-hint')!.textContent).toBe(view.api.messages.welcomeProjectsFolderHint)
     view.api.chooseProjectsFolder.mockResolvedValueOnce({ status: 'changed', folder: 'E:\\cad' })
     fireEvent.click(view.button('#projects-folder-change'))

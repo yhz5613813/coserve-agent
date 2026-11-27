@@ -150,17 +150,17 @@ describe('desktop welcome window', () => {
     const window = createWindow()
     electron.create.mockReturnValue(window)
     const saveProjectsFolder = vi.fn(operations.saveProjectsFolder)
-    await openWelcomeWindow(resolveDesktopLocale('en'), { ...operations, projectsFolder: async () => 'D:\\Coserve CAD', saveProjectsFolder })
+    await openWelcomeWindow(resolveDesktopLocale('en'), { ...operations, projectsFolder: async () => 'D:\\CoServe AI', saveProjectsFolder })
     const own = { sender: window.webContents, senderFrame: window.webContents.mainFrame }
     const choose = electron.handlers.get(WELCOME_IPC.chooseProjectsFolder)!
-    expect(await electron.handlers.get(WELCOME_IPC.projectsFolder)!(own)).toBe('D:\\Coserve CAD')
+    expect(await electron.handlers.get(WELCOME_IPC.projectsFolder)!(own)).toBe('D:\\CoServe AI')
     electron.showOpenDialog.mockResolvedValueOnce({ canceled: true, filePaths: [] })
     expect(await choose(own)).toEqual({ status: 'cancelled' })
     expect(saveProjectsFolder).not.toHaveBeenCalled()
     electron.showOpenDialog.mockResolvedValueOnce({ canceled: false, filePaths: ['E:\\cad'] })
     expect(await choose(own)).toEqual({ status: 'changed', folder: 'E:\\cad' })
     expect(saveProjectsFolder).toHaveBeenCalledExactlyOnceWith('E:\\cad')
-    expect(electron.showOpenDialog).toHaveBeenLastCalledWith(window, { defaultPath: 'D:\\Coserve CAD', properties: ['openDirectory', 'createDirectory'] })
+    expect(electron.showOpenDialog).toHaveBeenLastCalledWith(window, { defaultPath: 'D:\\CoServe AI', properties: ['openDirectory', 'createDirectory'] })
   })
 
   it('opens model API setup as a modal of the workspace window', async () => {

@@ -14,10 +14,10 @@ export type ProjectsFolderProblem = 'relative' | 'non-ascii' | 'drive-root' | 't
  * @param creatable - creates the folder if needed and reports success;
  * a missing D:, an optical drive (with or without media) or a read-only volume reports false.
  * @param systemDrive - Windows `SystemDrive`, such as `C:`.
- * @returns `D:\Coserve CAD` when it can be created, otherwise `<systemDrive>\Coserve CAD`.
+ * @returns `D:\CoServe AI` when it can be created, otherwise `<systemDrive>\CoServe AI`.
  */
 export function defaultProjectsFolder(creatable: (folder: string) => boolean, systemDrive = 'C:'): string {
-  return creatable('D:\\Coserve CAD') ? 'D:\\Coserve CAD' : `${systemDrive}\\Coserve CAD`
+  return creatable('D:\\CoServe AI') ? 'D:\\CoServe AI' : `${systemDrive}\\CoServe AI`
 }
 
 /**
