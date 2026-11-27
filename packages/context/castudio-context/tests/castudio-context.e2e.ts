@@ -82,7 +82,8 @@ describe('castudio-context through the production headless profile', () => {
     expect(contextText).toContain('The user currently has these CAD workbenches open:')
     expect(contextText).toContain('tab: model preview')
     expect(contextText).toContain('Model: demonstration geometry — loaded')
-    expect(contextText).toContain('Parts: 2 total, 1 hidden')
+    expect(contextText).toContain('Meshes: 2 total, 1 hidden')
+    expect(contextText).toContain('Project / Part: "Fixture Bracket" / "default" (default)')
     expect(contextText).toContain('Selection: "底座" (mesh-a)')
     expect(contextText).toContain('cad_workbench tool')
     const reloadedText = contexts[1]!.data.content

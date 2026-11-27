@@ -91,10 +91,6 @@
   display: none;
 }
 
-:global(html[data-windows-titlebar]:has([data-sidebar-collapsed='true'])) {
-  --dsh-windows-menu-start: 84px;
-}
-
 :global([data-windows-titlebar]) .collapsed .newSession {
   position: fixed;
   top: calc((var(--dsh-windows-titlebar-height) - 28px) / 2);

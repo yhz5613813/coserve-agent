@@ -5,6 +5,8 @@ import { dshWorkspaceRoutes } from './dsh-workspace.js';
 import { viewportRoutes, type ViewportRouteOptions } from './viewport.js';
 import { cylinderObjectsRoutes } from './cylinder-objects.js';
 import { cadInspectionRoutes } from './cad-inspections.js';
+import { cadConvertRoutes, isCatiaUpload } from './cad-convert.js';
+import { exportRoutes } from './exports.js';
 import { structuralRoutes } from './structural.js';
 import express from 'express';
 import { Thermal } from './thermal.js';
@@ -12,12 +14,16 @@ import {ThermalEditor} from './thermal-editor.js';
 import {ThermalResource} from './thermal-resource.js';
 import multer from 'multer';
 import path from 'node:path';
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { promises as fs } from 'node:fs';
-import { Store, safePath, scanArtifacts, HttpError, jsonRead, jsonWrite } from './storage.js';
+import { Store, safePath, scanArtifacts, foreignTopLevel, isPartId, rootOf, PART_SEPARATOR, HttpError, jsonRead, jsonWrite } from './storage.js';
+import { assemblyRoutes } from './assembly.js';
+import type { Part, PartRunStatus } from '../shared/types.js';
 import { Plugins } from './plugins.js';
 import { Events } from './events.js';
+import { watchWorkspace } from './watch.js';
 import { PiHarness } from './harness.js';
+import type { Settings } from '../shared/types.js';
 import { History } from './history.js';
 import { validateArchive } from './scene-package.js';
 import { Reviews } from './reviews.js';
@@ -25,14 +31,29 @@ import { Builds } from './builds.js';
 import { Parameters } from './parameters.js';
 import { Measurements } from './measurements.js';
 
-export async function createApp(dataRoot: string, options: { viewport?: ViewportRouteOptions } = {}) {
-  const store = new Store(dataRoot); await store.init();
+/** Loopback Host and same-origin check for every `/api` request; also sets `Cache-Control: no-store`. */
+export const apiGuard: express.RequestHandler = (req, res, next) => {
+  const host = req.hostname;
+  if (!['localhost', '127.0.0.1', '[::1]', '::1'].includes(host)) { res.status(403).json({ error: '仅允许本机访问' }); return; }
+  const origin = req.get('origin');
+  if (origin) { try { if (new URL(origin).host !== req.get('host')) { res.status(403).json({ error: '跨站请求被拒绝' }); return; } } catch { res.status(403).json({ error: '无效请求来源' }); return; } }
+  res.setHeader('Cache-Control', 'no-store'); next();
+};
+/** `GET /api/health`: 200 `{ok:true, ready:true, instance, pid}` once projects can be served, 503 with `ok:false` before (the desktop waits for its instance with `ok`). */
+export const healthRoute = (ready: () => boolean): express.RequestHandler => (_req, res) => {
+  const ok = ready();
+  if (!ok) res.set('Retry-After', '1');
+  res.status(ok ? 200 : 503).json({ ok, ready: ok, instance: process.env.STUDIO_INSTANCE ?? null, pid: process.pid });
+};
+
+export async function createApp(dataRoot: string, options: { viewport?: ViewportRouteOptions; projects?: string } = {}) {
+  const store = new Store(dataRoot, options.projects); await store.init();
   const history = new History(store);
   const reviews = new Reviews(store, history);
   const parameters = new Parameters(store, history);
   const measurements = new Measurements(store, history);
-  for (const project of await store.projects()) await history.recover(project.id);
-  const plugins = new Plugins(dataRoot), events = new Events(), harness = new PiHarness(store, plugins, events, history);
+  for (const project of await store.records()) await history.recover(project.id);
+  const plugins = new Plugins(dataRoot), events: Events = new Events(id => watchWorkspace(store.workspace(id), foreignTopLevel(id), paths => events.emit(id, 'artifacts_changed', paths ? { paths } : {}))), harness = new PiHarness(store, plugins, events, history);
   const builds = new Builds(store, history, events); await builds.recover();
   const thermalResource=new ThermalResource();
   const thermal = new Thermal(store, history, events,thermalResource); await thermal.recover();
@@ -43,24 +64,38 @@ export async function createApp(dataRoot: string, options: { viewport?: Viewport
     try { await history.recover(id); return await action(); } finally { release(); }
   };
   const app = express(); app.disable('x-powered-by');
-  app.use('/api', (req, res, next) => {
-    const host = req.hostname;
-    if (!['localhost', '127.0.0.1', '[::1]', '::1'].includes(host)) return res.status(403).json({ error: '仅允许本机访问' });
-    const origin = req.get('origin');
-    if (origin) { try { if (new URL(origin).host !== req.get('host')) return res.status(403).json({ error: '跨站请求被拒绝' }); } catch { return res.status(403).json({ error: '无效请求来源' }); } }
-    res.setHeader('Cache-Control', 'no-store'); next();
-  });
+  app.use('/api', apiGuard);
+  app.get('/api/health', healthRoute(() => true));
   // Viewport routes carry their own body parsers: the results route accepts 30mb snapshots while the shared parser stays at 8mb.
   viewportRoutes(app, store, events, options.viewport);
-  app.use(express.json({ limit: '8mb' }));
+  // Scoped to /api: the parametric proxy (/pm/:id) must forward request bodies unread.
+  app.use('/api', express.json({ limit: '8mb' }));
   dshWorkspaceRoutes(app, store);
   optimizationRoutes(app,optimizations);
   deliveryRoutes(app,new Deliveries(store,optimizations,history,builds,thermal));
-  const parametric=parametricRoutes(app,store,history);
+  // Part statuses (GET parts) derive from publishes and runs, so their completion refreshes the root's part list.
+  const partsChanged=(id:string)=>events.emit(rootOf(id),'parts_changed',{});
+  const parametric=parametricRoutes(app,store,history,(id,open)=>{partsChanged(id);if(open)events.emit(id,'artifacts_changed',{open});});
   const cylinderObjects=cylinderObjectsRoutes(app,store,history,{changed:id=>{events.emit(id,'artifacts_changed',{});events.emit(id,'history_changed',{});}});
   const cadInspections=cadInspectionRoutes(app,store,history,{changed:id=>events.emit(id,'artifacts_changed',{})});
-  const structural=structuralRoutes(app,store);
-  app.get('/api/health', (_req, res) => res.json({ ok: true }));
+  const structural=structuralRoutes(app,store,undefined,partsChanged);
+  assemblyRoutes(app,store,history,events);
+  /** The latest run record under `dir/<run id>/run.json`, as the services write them. */
+  const latestRun = async (dir: string) => {
+    const names = await fs.readdir(dir).catch(error => { if (error.code === 'ENOENT') return [] as string[]; throw error; });
+    const runs = await Promise.all(names.filter(name => /^[a-f0-9-]{36}$/.test(name)).map(name => jsonRead<{ id: string; state: string; createdAt: string } | null>(path.join(dir, name, 'run.json'), null)));
+    return runs.filter(run => !!run).sort((a, b) => b!.createdAt.localeCompare(a!.createdAt))[0];
+  };
+  const runStatus = (state?: string): PartRunStatus | undefined => state === 'succeeded' ? 'succeeded' : state === 'failed' || state === 'interrupted' ? 'failed' : state === 'queued' || state === 'running' ? 'running' : undefined;
+  const partStatus = async (part: Part): Promise<Part> => {
+    const record = await store.project(part.id), workspace = store.workspace(part.id);
+    const index = await fs.stat(path.join(store.projectRoot(part.id), 'history', 'index.json')).catch(error => { if (error.code === 'ENOENT') return null; throw error; });
+    const updatedAt = index && index.mtime.toISOString() > record.updatedAt ? index.mtime.toISOString() : record.updatedAt;
+    const published = !!await jsonRead(path.join(workspace, 'parametric', 'published.json'), null) || (await scanArtifacts(workspace, foreignTopLevel(part.id))).some(f => f.category === 'cad' && /\.(step|stp)$/i.test(f.name));
+    const structuralRun = await latestRun(path.join(workspace, 'structural')), thermalRun = await latestRun(path.join(store.projectRoot(part.id), 'thermal'));
+    const structuralState = structuralRun && ['queued', 'running'].includes(structuralRun.state) && !structural.running(structuralRun.id) ? 'interrupted' : structuralRun?.state;
+    return { ...part, updatedAt, published, structural: runStatus(structuralState), thermal: runStatus(thermalRun?.state) };
+  };
   app.get('/api/projects/:id/measurements', async (req, res) => res.json(await measurements.read(req.params.id)));
   app.post('/api/projects/:id/measurements', async (req, res) => {
     const value = await measurements.change(req.params.id, req.body.etag, { add: req.body.measurement });
@@ -96,7 +131,7 @@ export async function createApp(dataRoot: string, options: { viewport?: Viewport
     try { res.json(await validateArchive(req.body)); }
     catch (error) { throw new HttpError(422, (error as Error).message); }
   });
-  app.get('/api/thermal/runtime', async (_req,res) => res.json(await thermal.config()));
+  app.get('/api/thermal/runtime', async (_req,res) => res.json(await thermal.status()));
   app.get('/api/thermal/schema',async(_req,res)=>res.json(await thermalEditor.schema()));
   app.post('/api/projects/:id/thermal/inspections',async(req,res)=>res.status(202).json(await thermalEditor.start(req.params.id,req.body)));
   app.get('/api/projects/:id/thermal/inspections/:inspection',async(req,res)=>res.json(await thermalEditor.read(req.params.id,req.params.inspection)));
@@ -161,16 +196,24 @@ export async function createApp(dataRoot: string, options: { viewport?: Viewport
     if (typeof req.body.apiKey !== 'string' || !req.body.apiKey.trim()) throw new HttpError(400, '请填写 OpenAI API Key');
     await harness.connectOpenAI(req.body.apiKey.trim()); res.json({ ok: true, model: 'gpt-6-astra' });
   });
-  app.post('/api/provider', async (req, res) => {
-    const { baseUrl, model, apiKey } = req.body;
+  const thinkingLevels = ['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'];
+  const providerFields = (body: Record<string, unknown>) => {
+    const { baseUrl, model, apiKey, thinking, input, reasoning } = body;
     if (typeof baseUrl !== 'string' || typeof model !== 'string' || !model.trim() || typeof apiKey !== 'string' || !apiKey.trim()) throw new HttpError(400, '请填写服务地址、模型名称和 API Key');
     let url: URL; try { url = new URL(baseUrl); } catch { throw new HttpError(400, '服务地址无效'); }
     if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password) throw new HttpError(400, '服务地址必须是 HTTP(S) URL');
-    await harness.connectProvider(url.toString().replace(/\/$/, ''), model.trim(), apiKey.trim()); res.json({ ok: true });
+    if (thinking !== undefined && !thinkingLevels.includes(thinking as string)) throw new HttpError(400, '无效思考级别');
+    if (input !== undefined && (!Array.isArray(input) || !input.includes('text') || input.some(item => item !== 'text' && item !== 'image'))) throw new HttpError(400, '输入类型必须包含 text，且只能是 text 或 image');
+    if (reasoning !== undefined && typeof reasoning !== 'boolean') throw new HttpError(400, '无效思考能力设置');
+    return { baseUrl: url.toString().replace(/\/$/, ''), model: model.trim(), apiKey: apiKey.trim(), thinking: thinking as Settings['thinking'] | undefined, input: input as ('text' | 'image')[] | undefined, reasoning: reasoning as boolean | undefined };
+  };
+  app.post('/api/provider', async (req, res) => {
+    const { baseUrl, model, apiKey, ...options } = providerFields(req.body);
+    res.json({ ok: true, ...await harness.connectProvider(baseUrl, model, apiKey, options) });
   });
   app.put('/api/settings', async (req, res) => {
     const { provider, model, thinking } = req.body;
-    if (typeof provider !== 'string' || typeof model !== 'string' || !['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'].includes(thinking)) throw new HttpError(400, '无效模型设置');
+    if (typeof provider !== 'string' || typeof model !== 'string' || !thinkingLevels.includes(thinking)) throw new HttpError(400, '无效模型设置');
     if (model === 'gpt-6-astra' && ['off', 'minimal'].includes(thinking)) throw new HttpError(400, 'GPT-6 的思考级别请选择 low 或更高');
     await harness.invalidate(); await store.saveSettings({ provider, model, thinking }); res.json({ ok: true });
   });
@@ -186,7 +229,23 @@ export async function createApp(dataRoot: string, options: { viewport?: Viewport
     res.status(202).json(await harness.prompt(req.params.id, req.body.text, req.body.selection));
   });
   app.post('/api/projects/:id/stop', async (req, res) => { await store.project(req.params.id); await harness.stop(req.params.id); res.json({ ok: true }); });
-  app.get('/api/projects/:id/files', async (req, res) => { await store.project(req.params.id); res.json(await scanArtifacts(store.workspace(req.params.id))); });
+  app.get('/api/projects/:id/files', async (req, res) => { await store.project(req.params.id); res.json(await scanArtifacts(store.workspace(req.params.id), foreignTopLevel(req.params.id))); });
+  app.get('/api/projects/:id/parts', async (req, res) => res.json(await Promise.all((await store.parts(req.params.id)).map(partStatus))));
+  app.post('/api/projects/:id/parts', async (req, res) => {
+    const part = await store.createPart(req.params.id, String(req.body?.name ?? ''));
+    events.emit(req.params.id, 'parts_changed', {}); res.status(201).json(part);
+  });
+  const rootOnly = (id: string) => { if (isPartId(id)) throw new HttpError(400, '请使用项目编号，不要使用零件编号'); return id; };
+  app.patch('/api/projects/:id/parts/:slug', async (req, res) => {
+    const part = await store.renamePart(rootOnly(req.params.id), req.params.slug, String(req.body?.name ?? ''));
+    events.emit(req.params.id, 'parts_changed', {}); res.json(part);
+  });
+  app.delete('/api/projects/:id/parts/:slug', async (req, res) => {
+    const rootId = rootOnly(req.params.id), slug = req.params.slug;
+    if (slug !== 'default' && (harness.isBusy(rootId) || harness.isBusy(`${rootId}${PART_SEPARATOR}${slug}`))) throw new HttpError(409, 'Agent 正在修改项目，请先停止任务');
+    const result = await store.deletePart(rootId, slug);
+    events.emit(rootId, 'parts_changed', {}); res.json(result);
+  });
   app.get('/api/projects/:id/annotations', async (req, res) => res.json(await reviews.read(req.params.id)));
   app.post('/api/projects/:id/annotations', async (req, res) => {
     const doc = await reviews.change(req.params.id, req.body.etag, { create: req.body.note });
@@ -238,6 +297,8 @@ export async function createApp(dataRoot: string, options: { viewport?: Viewport
     if (harness.isBusy(req.params.id)) throw new HttpError(409, 'Agent 正在修改项目，请先停止任务');
     const relative = String(req.body.path || '');
     if (!/\.(py|json|md|txt|yaml|toml)$/i.test(relative) || typeof req.body.text !== 'string') throw new HttpError(400, '只支持保存 Python 和文本文件');
+    // Part folders belong to their own records (lock and history); the root must not write into them.
+    if (foreignTopLevel(req.params.id).has(relative.split(/[\\/]/)[0])) throw new HttpError(400, '零件文件请在对应零件中保存');
     await modify(req.params.id, async () => {
       const file = await safePath(store.workspace(req.params.id), relative, false);
       if ('baseText' in req.body) {
@@ -267,23 +328,34 @@ export async function createApp(dataRoot: string, options: { viewport?: Viewport
     });
     events.emit(id,'artifacts_changed',{});events.emit(id,'history_changed',{});res.status(201).json({path:relative,name});
   });
+  const cadConvert = cadConvertRoutes(app, store, history, modify, events); exportRoutes(app, store, history, modify, events);
   const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 128 * 1024 * 1024, files: 1 } });
   app.post('/api/projects/:id/upload', upload.single('file'), async (req, res) => {
     const id = String(req.params.id);
     await store.project(id);
     if (!req.file) throw new HttpError(400, '请选择一个文件');
     const name = path.basename(Buffer.from(req.file.originalname, 'latin1').toString('utf8')).replace(/[^\p{L}\p{N}._ -]/gu, '_');
-    if (!/\.(glb|gltf|stl|obj|step|stp|scadpkg|zip|py|json|png|jpg|jpeg|webp)$/i.test(name)) throw new HttpError(400, '不支持这个文件类型');
+    if (!/\.(glb|gltf|stl|obj|step|stp|scadpkg|zip|CATPart|CATProduct|py|json|png|jpg|jpeg|webp)$/i.test(name)) throw new HttpError(400, '不支持这个文件类型');
     const relative = `imports/${randomUUID()}/${name}`;
-    const bytes = req.file.buffer;
+    const bytes = req.file.buffer, hash = createHash('sha256').update(bytes).digest('hex');
+    let duplicate: string | undefined;
     await modify(id, async () => {
+      // Same name and identical bytes under imports/*/ reuse the earlier import instead of adding a copy and two revisions.
+      const imports = path.join(store.workspace(id), 'imports');
+      for (const dir of await fs.readdir(imports, { withFileTypes: true }).catch(e => { if (e.code === 'ENOENT') return []; throw e; })) {
+        if (!dir.isDirectory()) continue;
+        const existing = path.join(imports, dir.name, name), stat = await fs.lstat(existing).catch(e => { if (e.code === 'ENOENT') return null; throw e; });
+        if (stat?.isFile() && stat.size === bytes.length && createHash('sha256').update(await fs.readFile(existing)).digest('hex') === hash) { duplicate = `imports/${dir.name}/${name}`; return; }
+      }
       const target = await safePath(store.workspace(id), relative, false);
       await history.snapshot(id, `导入前 · ${name}`, 'before-import');
       await fs.mkdir(path.dirname(target), { recursive: true }); await fs.writeFile(target, bytes);
       await history.snapshot(id, `导入后 · ${name}`, 'after-import');
       await store.touch(id);
     });
-    events.emit(id, 'artifacts_changed', {}); res.json({ path: relative, name });
+    const catia = isCatiaUpload(name, bytes);
+    if (duplicate) return res.json({ path: duplicate, name, duplicate: true, ...(catia && { conversion: await cadConvert.importUploaded(id, duplicate) }) });
+    events.emit(id, 'artifacts_changed', {}); res.json({ path: relative, name, ...(catia && { conversion: await cadConvert.importUploaded(id, relative) }) });
   });
   app.get('/api/plugins', async (_req, res) => res.json(await plugins.list()));
   app.post('/api/plugins', async (req, res) => { await harness.invalidate(); res.status(201).json(await plugins.install(String(req.body.source || ''))); });

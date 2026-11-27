@@ -3,9 +3,9 @@ self.onmessage = async ({ data }) => {
   try {
     if (!(data.buffer instanceof ArrayBuffer) || data.buffer.byteLength > 128 * 1024 * 1024) throw new Error('STEP 文件不能超过 128 MB');
     self.postMessage({ type: 'progress', text: '正在启动 STEP 解析器…' });
-    importScripts('/vendor/occt/occt-import-js.js');
-    const occt = await occtimportjs({ locateFile: name => '/vendor/occt/' + name, print: () => {}, printErr: () => {} });
-    const hash = Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', data.buffer)), n => n.toString(16).padStart(2, '0')).join('');
+    importScripts('sha256.js', 'vendor/occt/occt-import-js.js');
+    const occt = await occtimportjs({ locateFile: name => new URL('vendor/occt/' + name, self.location.href).href, print: () => {}, printErr: () => {} });
+    const hash = Array.from(new Uint8Array(await studioSha256(data.buffer)), n => n.toString(16).padStart(2, '0')).join('');
     const qualities = { draft: 0.004, standard: 0.001, fine: 0.00025 };
     const quality = Object.hasOwn(qualities, data.quality) ? data.quality : 'standard';
     self.postMessage({ type: 'progress', text: '正在读取 STEP 并生成预览网格…' });

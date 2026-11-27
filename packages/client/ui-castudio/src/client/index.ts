@@ -9,12 +9,20 @@ import type {} from '@deepseek-ai/dsh-client-ui-conversation/client'
 import type {} from '@deepseek-ai/dsh-api-session-controller/client'
 import type {} from '@deepseek-ai/dsh-api-workspace-controller/client'
 import type {} from '@deepseek-ai/dsh-client-ui-input-trigger/client'
+import { createSnapshotStore } from '@deepseek-ai/dsh-client-store'
 import { CadController, type CadProject } from './cad-controller.ts'
-import { attachCadReference, cadReference, cadReferenceRule, cadReferenceSource } from './cad-reference.ts'
-import { CadReference } from './CadReference.tsx'
+import { attachCadReference, cadPartReference, cadPartRule, cadPartSource, cadReference, cadReferenceRule, cadReferenceSource } from './cad-reference.ts'
+import { CadPartReference, CadReference } from './CadReference.tsx'
+import { PartChoice, type PartChoiceFace } from './PartChoice.tsx'
+import { PartBadge } from './PartBadge.tsx'
+import { partFolder, partSubgroup, recentParts, recommendPart } from './part-choice.ts'
 import { CadWorkspace, CadOpenButton, type CadFace } from './CadWorkspace.tsx'
+import { CadViewer } from './CadViewer.tsx'
+import { CAD_VIEWER_ID, cadOpenTarget, cadViewerDefinition } from './cad-viewer.ts'
+import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import { zh, en, type StudioKey } from './locales.ts'
 import type { StudioBridge } from './types.ts'
+import { createBrowserBridge } from './browser-bridge.ts'
 
 declare module '@deepseek-ai/dsh-client-ui-slots' {
   interface LocaleNamespaceMap { castudio: StudioKey }
@@ -25,8 +33,9 @@ export const inject = ['slots', 'locale', 'layout', 'theme', 'sidebarRight', 'si
 
 /** Register a CAD tab beside the original conversation, without a separate chat. */
 export function apply(ctx: Context): void {
+  // Desktop exposes a preload bridge; a browser reaches CAStudio through the gateway's same-origin `castudio/` mount.
   const bridge = (globalThis as typeof globalThis & { dshCAStudio?: StudioBridge }).dshCAStudio
-  if (!bridge) return
+    ?? createBrowserBridge(new URL('castudio/', document.baseURI))
   ctx.effect(() => ctx.locale.register('castudio', { zh, en, ja: en, es: en, fr: en, de: en, ru: en, pt: en }), 'castudio.locale')
   const t = ctx.locale.bind('castudio')
   ctx.effect(() => ctx.inputTriggers.registerSource(cadReferenceSource), 'castudio.reference-source')
@@ -34,6 +43,11 @@ export function apply(ctx: Context): void {
   ctx.effect(() => ctx.slots.inject('conversation.user.text.node', () => ctx.slots.register({
     name: 'conversation.user.text.node', key: 'cad-selection',
   }, CadReference)), 'castudio.reference-view')
+  ctx.effect(() => ctx.inputTriggers.registerSource(cadPartSource), 'castudio.part-source')
+  ctx.effect(() => ctx.uiConversation.userText.register(cadPartRule), 'castudio.part-rule')
+  ctx.effect(() => ctx.slots.inject('conversation.user.text.node', () => ctx.slots.register({
+    name: 'conversation.user.text.node', key: 'cad-part',
+  }, CadPartReference)), 'castudio.part-view')
   // Workspace titles must be unique: another project may already carry the same name.
   // Try the plain title first, then numbered suffixes; never let this block opening the project.
   const renameWorkspace = async (workspaceId: Parameters<typeof ctx.workspaces.rename>[0], desired: string): Promise<void> => {
@@ -94,10 +108,13 @@ export function apply(ctx: Context): void {
   const controller = new CadController(bridge, openWorkspace, forgetWorkspace)
   controller.setTheme(ctx.theme.getTheme().active.colorScheme)
   ctx.on('theme/change', theme => controller.setTheme(theme.active.colorScheme))
+  controller.setLocale(ctx.locale.getLocale().active)
+  ctx.on('locale/change', locale => controller.setLocale(locale.active))
   ctx.effect(() => () => controller.dispose(), 'castudio.controller')
   const face: CadFace = {
     hooks: { cad: controller.snapshot },
     refresh: () => { void controller.load() },
+    restartService: () => { void controller.restartService() },
     createProject: async (name, mode) => {
       const created = await controller.create(name, mode)
       if (created) sweepOrphanWorkspaces()
@@ -138,14 +155,61 @@ export function apply(ctx: Context): void {
   ctx.effect(() => ctx.slots.inject('sidebar.right.pane.tab', () => ctx.slots.register({
     name: 'sidebar.right.pane.tab', key: tabId, locale: 'castudio', inject: () => face,
   }, CadWorkspace)), 'castudio.workspace')
+  // CAD files opened from DSH's file tree show in the CAD tab; only Sessions inside a CAD project claim them.
+  const viewerTarget = (address: string) => cadOpenTarget(address, id => ctx.sessions.list.getSnapshot().byId[id]?.cwd, controller.snapshot.getSnapshot().projects)
+  ctx.effect(() => ctx.sidebarRightTabs.register(cadViewerDefinition(viewerTarget, () => t('workspace'))), 'castudio.viewer-tab')
+  ctx.effect(() => ctx.slots.inject('sidebar.right.pane.tab', () => ctx.slots.register({
+    name: 'sidebar.right.pane.tab', key: CAD_VIEWER_ID, locale: 'castudio',
+    inject: () => ({
+      openFile: (id: SessionId, address: string) => {
+        const target = viewerTarget(address)
+        if (target !== undefined) controller.requestOpen(id, target)
+        return target !== undefined
+      },
+    }),
+  }, CadViewer)), 'castudio.viewer')
   const openCad = () => { ctx.sidebarRight.openTab('cad') }
-  const buttonFace = () => ({ hooks: { cad: controller.snapshot }, openCad })
+  // Open automatically only into an empty right sidebar: a tab the user selected, or a column
+  // collapsed with its tabs kept, is never replaced.
+  const autoOpenCad = () => { if (ctx.sidebarRight.active() === undefined) openCad() }
+  const buttonFace = () => ({ hooks: { cad: controller.snapshot }, openCad, autoOpenCad })
   ctx.effect(() => ctx.slots.inject('conversation.session.header.utilities', () => ctx.slots.register({
     name: 'conversation.session.header.utilities', id: 'cad-workspace', order: -10, locale: 'castudio', inject: buttonFace,
   }, CadOpenButton)), 'castudio.header')
   ctx.effect(() => ctx.slots.inject('conversation.hero.options', () => ctx.slots.register({
     name: 'conversation.hero.options', id: 'cad-workspace', order: -10, locale: 'castudio', inject: buttonFace,
   }, CadOpenButton)), 'castudio.hero')
+  // A blank CAD Session asks which part it continues; the answer is a chip its first, logged message carries.
+  const declinedParts = createSnapshotStore<{ declined: SessionId[] }>({ declined: [] })
+  const partChoiceFace = (sessionId: SessionId): PartChoiceFace => ({
+    hooks: { cad: controller.snapshot, partDeclined: declinedParts },
+    loadParts: async (project) => {
+      const [parts, shown] = await Promise.all([controller.parts(project.id), controller.shownPart(project)])
+      const recent = recentParts(Object.values(ctx.sessions.list.getSnapshot().byId), project.id)
+      return { parts, recommended: recommendPart(parts, { recent, shown }) }
+    },
+    choosePart: (projectId, part) => {
+      const binding = ctx.sessions.binding(sessionId)
+      if (binding === undefined) return
+      const input = ctx.conversation.input.for(binding.ctx)
+      const reference = cadPartReference(projectId, part.slug, part.name, partFolder(part.slug))
+      if (!input.insertReference(reference, { start: 0, end: 0, draftRev: input.state.getSnapshot().draftRev })) return
+      openCad()
+      // Show the part's first model, or the part alone when it has none yet.
+      void controller.firstModel(part).then((path) => {
+        controller.requestOpen(sessionId, { projectId, part: part.slug, ...(path !== undefined && { path }) })
+      }, error => console.warn('castudio: the chosen part was not opened in the CAD tab', error))
+    },
+    decline: () => declinedParts.update((state) => { state.declined.push(sessionId) }),
+  })
+  ctx.effect(() => ctx.slots.inject('conversation.input.dock', () => ctx.slots.register({
+    name: 'conversation.input.dock', id: 'cad-part', order: -10, locale: 'castudio', inject: partChoiceFace,
+  }, PartChoice)), 'castudio.part-choice')
+  // Session rows show and group by the part each Session's `cadPart` summary value names.
+  ctx.effect(() => ctx.slots.inject('sidebar.session.row.trailing', () => ctx.slots.register({
+    name: 'sidebar.session.row.trailing', id: 'cad-part', order: 0,
+  }, PartBadge)), 'castudio.part-badge')
+  ctx.effect(() => ctx.uiWorkspace.sessionSubgroups.register({ id: 'castudio.part', groupOf: partSubgroup }), 'castudio.part-subgroups')
   ctx.layout.selectPanel(null)
   void controller.load().then((loaded) => { if (loaded) sweepOrphanWorkspaces() })
   ctx.effect(() => ctx.workspaces.list.subscribe(sweepOrphanWorkspaces), 'castudio.workspace-sweep')

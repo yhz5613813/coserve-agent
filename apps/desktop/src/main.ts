@@ -2,7 +2,8 @@
 
 import { installFileActions } from './file-actions.ts'
 import { installCAStudio } from './castudio.ts'
-import { startCAStudioService } from './castudio-service.ts'
+import { allocateCAStudioOrigin, startCAStudioService, type CAStudioMode } from './castudio-service.ts'
+import { caStudioOrigin } from './castudio-transport.ts'
 import { configurationFailure, channelSaveFailure, configurationMessage } from './update-configuration.ts'
 import type { DesktopChannelState, DesktopChannelChangeResult } from '@deepseek-ai/dsh-client-ui-settings-general/types'
 import { DesktopUpdateSettings } from './update-settings.ts'
@@ -10,8 +11,8 @@ import { isDesktopUpdateChannel } from './settings-file.ts'
 import type { ProductEventMap, ProductEvent } from '@deepseek-ai/dsh-client-product-analytics/types'
 import { WINDOWS_TITLEBAR_HEIGHT } from './windows-layout.ts'
 import { access, readFile, writeFile } from 'node:fs/promises'
-import { existsSync, mkdirSync } from 'node:fs'
-import { dirname, join } from 'node:path'
+import { existsSync, mkdirSync, readFileSync } from 'node:fs'
+import { dirname, isAbsolute, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import {
   app,
@@ -51,7 +52,9 @@ import { DesktopFatalRecovery } from './fatal-recovery.ts'
 import { pruneCrashReports, RendererConsoleTail, writeCrashReport, type CrashReportSource } from './crash-report.ts'
 import { OperationJournal } from './operation-journal.ts'
 import { runOperationReportJob, type OperationReportJobResult } from './operation-report-job.ts'
-import { openWelcomeWindow } from './welcome-window.ts'
+import { openWelcomeWindow, type WelcomeHostOperations } from './welcome-window.ts'
+import { readWelcomeProgress, writeWelcomeProgress } from './welcome-progress.ts'
+import { defaultProjectsFolder, PROJECTS_FOLDER_FILE, saveProjectsFolder } from './projects-folder.ts'
 import { WELCOME_IPC, needsWelcome, type WelcomeNotice } from './welcome-api.ts'
 import { connectDesktopWelcome, type DesktopWelcomeBackend } from './welcome-backend.ts'
 import { DesktopUpdateJournal } from './update-journal.ts'
@@ -84,7 +87,30 @@ if (portable) {
   app.setPath('userData', join(data, 'desktop'))
   app.setPath('sessionData', join(data, 'desktop'))
   app.setPath('crashDumps', join(data, 'crashes'))
+  // A Windows account named in Chinese puts %TEMP% under a non-ASCII profile path, which gmsh, CalculiX and the CAD
+  // converters cannot open; child processes inherit this ASCII temp folder instead (the installer keeps the install path ASCII).
+  if (!/^[\x20-\x7e]*$/.test(process.env.TEMP ?? '')) {
+    const temp = join(data, 'tmp')
+    mkdirSync(temp, { recursive: true })
+    process.env.TEMP = temp
+    process.env.TMP = temp
+  }
+  // The welcome window records the project folder the user chose; without a usable record the default applies.
+  const projects = join(dirname(process.execPath), PROJECTS_FOLDER_FILE)
+  const folder = existsSync(projects) ? readFileSync(projects, 'utf8').trim() : ''
+  if (existsSync(projects) && !isAbsolute(folder)) console.warn(`desktop castudio: ignoring ${projects}: ${JSON.stringify(folder)} is not an absolute path`)
+  const creatable = (dir: string) => {
+    // CAStudio keeps its records in `.coserve`; creating it also proves an existing folder is writable by this user.
+    try { mkdirSync(join(dir, '.coserve'), { recursive: true }); return true }
+    // A missing, optical or read-only drive cannot hold projects; the system drive is used instead.
+    catch (error) { console.warn(`desktop castudio: cannot use ${dir}: ${(error as Error).message}`); return false }
+  }
+  process.env.STUDIO_PROJECTS_DIR ??= isAbsolute(folder) ? folder : defaultProjectsFolder(creatable, process.env.SystemDrive)
 }
+// Only a user-supplied COSERVE_CASTUDIO_URL selects an external service; a relaunch inherits the origin this process
+// writes below together with COSERVE_CASTUDIO_SELF_MANAGED, and allocates a fresh one.
+const caStudioMode: CAStudioMode = (process.env.COSERVE_CASTUDIO_URL !== undefined && process.env.COSERVE_CASTUDIO_SELF_MANAGED !== '1')
+  || process.env.COSERVE_CASTUDIO_AUTOSTART === '0' ? 'external' : 'self-managed'
 
 let focusPrimaryWindow = (): void => {}
 let stopForRecovery = async (): Promise<void> => { await stopOperationReports() }
@@ -303,6 +329,9 @@ function createWindow(preload: string, show = false, primary = false): BrowserWi
       contextIsolation: true,
       sandbox: true,
       webSecurity: true,
+      // The embedded CAD workbench reports its viewport every 5 s while the agent works; a hidden or occluded window
+      // must keep that heartbeat, or the service reports the viewport as disconnected.
+      backgroundThrottling: false,
       webviewTag: primary,
       devTools: true,
     },
@@ -395,6 +424,21 @@ async function main(): Promise<void> {
     ? developmentPrimaryRuntime()
     : join(process.resourcesPath, 'runtime', 'primary-runtime')
   const activeProject = paths.profile
+  // A self-managed CAStudio owns its port: a busy conventional port moves the service elsewhere, and only the spawned
+  // instance is adopted. Allocation and spawn run back to back; the Host inherits the origin through the environment.
+  const caStudioUrl = caStudioMode === 'external'
+    ? caStudioOrigin(process.env.COSERVE_CASTUDIO_URL ?? 'http://127.0.0.1:4317')
+    : await allocateCAStudioOrigin()
+  process.env.COSERVE_CASTUDIO_URL = caStudioUrl
+  if (caStudioMode === 'self-managed') process.env.COSERVE_CASTUDIO_SELF_MANAGED = '1'
+  const caStudioService = startCAStudioService({
+    origin: caStudioUrl,
+    mode: caStudioMode,
+    executable: resources.node,
+    resourcesPath: process.resourcesPath,
+    // The offline Windows installer unpacks the runtime beside the application folder.
+    runtimeDirectory: join(dirname(process.execPath), '..', 'runtime'),
+  })
   const manager = new DesktopProjectManager(paths, resources)
   // Dock and Finder launches inherit only launchd's environment; every Host shares one login-shell read.
   const loginShellRead = new AbortController()
@@ -679,7 +723,7 @@ async function main(): Promise<void> {
   stopForRecovery = async () => {
     const reports = stopOperationReports()
     try { await backend.close() }
-    finally { await Promise.all([operationJournal?.drain(500), reports]) }
+    finally { await Promise.all([operationJournal?.drain(500), reports, caStudioService.stop()]) }
   }
 
   const reconcileBackend = (): Promise<void> => {
@@ -749,6 +793,8 @@ async function main(): Promise<void> {
         // The backend's async cleanup callback can assign this after the reset above.
         const stopFailure = updateStopFailure as DesktopHostUncleanExitError | undefined
         if (stopFailure !== undefined) throw new DesktopUpdatePreparationError('stop-failed', locale.messages.updateStopFailed, stopFailure.message)
+        // The installer replaces the CAStudio files; its process must be gone first.
+        await caStudioService.stop()
         await operationJournal?.drain(500)
         updateJournal?.action('install-confirmed')
         shellInstallerOwnsQuit = true
@@ -868,15 +914,8 @@ async function main(): Promise<void> {
     return owner
   }
   installFileActions(assertMainApplication, () => hostUrl)
-  const castudioOrigin = process.env.COSERVE_CASTUDIO_URL ?? 'http://127.0.0.1:4317'
-  const disposeCAStudio = installCAStudio(assertMainApplication, castudioOrigin)
+  const disposeCAStudio = installCAStudio(assertMainApplication, caStudioService, caStudioUrl)
   app.on('will-quit', disposeCAStudio)
-  const caStudioService = startCAStudioService({
-    origin: castudioOrigin,
-    executable: resources.node,
-    resourcesPath: process.resourcesPath,
-  })
-  app.on('will-quit', () => { void caStudioService.stop() })
   ipcMain.on(PLATFORM_IPC.bootstrap, (event) => {
     try { event.returnValue = platformView.bootstrap(event) }
     catch { event.returnValue = null }
@@ -1386,6 +1425,60 @@ async function main(): Promise<void> {
     }
   }
   let openingWelcome: Promise<void> | undefined
+  let setupWindow: BrowserWindow | undefined
+  const welcomeOperations: Omit<WelcomeHostOperations, 'skip'> = {
+    analyticsEnabled: () => Promise.resolve(false),
+    takeNotice: () => {
+      const notice = pendingWelcomeNotice
+      pendingWelcomeNotice = undefined
+      return Promise.resolve(notice)
+    },
+    startSignIn: async () => {
+      if (welcomeBackend === undefined) throw new Error('desktop welcome: backend unavailable')
+      return welcomeBackend.account.start(desktopClientMetadata(locale.id))
+    },
+    cancelSignIn: async (id) => {
+      if (welcomeBackend === undefined) throw new Error('desktop welcome: backend unavailable')
+      return welcomeBackend.account.cancel(id)
+    },
+    copySignInLink: async (id) => {
+      const state = await welcomeBackend?.account.state()
+      if (state?.attempt?.id !== id || state.attempt.phase !== 'waiting-browser' || state.attempt.authorizeUrl === undefined) {
+        throw new Error('desktop welcome: login link is unavailable')
+      }
+      await clipboard.writeText(platformLoginUrl(state.attempt.authorizeUrl))
+    },
+    saveApiKey: async (apiKey, baseURL) => {
+      if (backend.host === undefined || welcomeBackend === undefined) return { ok: false }
+      const saved = await welcomeBackend.save(apiKey, baseURL)
+      if (!saved.ok) return saved
+      setupWindow?.close()
+      return { ok: true }
+    },
+    projectsFolder: () => Promise.resolve(portable ? process.env.STUDIO_PROJECTS_DIR : undefined),
+    saveProjectsFolder: async (folder) => {
+      try {
+        const problem = await saveProjectsFolder(folder, {
+          execPath: process.execPath, environment: process.env,
+          // The spawned CAStudio reads STUDIO_PROJECTS_DIR only at start.
+          restart: () => { if (caStudioMode === 'self-managed') void caStudioService.restart() },
+        })
+        return problem === undefined ? { status: 'changed', folder } : { status: 'invalid' }
+      } catch (error) {
+        console.warn(`desktop castudio: could not use project folder ${JSON.stringify(folder)}: ${String(error)}`)
+        return { status: 'failed' }
+      }
+    },
+  }
+  // The one-time model API setup opens over the workspace; saving, dismissing, or closing it records `done`.
+  const showSetup = async (): Promise<void> => {
+    if (quitting || setupWindow !== undefined || mainWindow === undefined || mainWindow.isDestroyed()) return
+    setupWindow = await openWelcomeWindow(locale, { ...welcomeOperations, skip: async () => { setupWindow?.close() } }, mainWindow)
+    setupWindow.once('closed', () => {
+      setupWindow = undefined
+      writeWelcomeProgress(app.getPath('userData'), 'done')
+    })
+  }
   const showWelcome = (): Promise<void> => {
     if (quitting) return Promise.resolve()
     if (welcomeWindow !== undefined && !welcomeWindow.isDestroyed()) {
@@ -1396,35 +1489,13 @@ async function main(): Promise<void> {
     }
     openingWelcome ??= (async () => {
       welcomeWindow = await openWelcomeWindow(locale, {
-        analyticsEnabled: () => Promise.resolve(false),
-        takeNotice: () => {
-          const notice = pendingWelcomeNotice
-          pendingWelcomeNotice = undefined
-          return Promise.resolve(notice)
-        },
-        startSignIn: async () => {
-          if (welcomeBackend === undefined) throw new Error('desktop welcome: backend unavailable')
-          return welcomeBackend.account.start(desktopClientMetadata(locale.id))
-        },
-        cancelSignIn: async (id) => {
-          if (welcomeBackend === undefined) throw new Error('desktop welcome: backend unavailable')
-          return welcomeBackend.account.cancel(id)
-        },
-        copySignInLink: async (id) => {
-          const state = await welcomeBackend?.account.state()
-          if (state?.attempt?.id !== id || state.attempt.phase !== 'waiting-browser' || state.attempt.authorizeUrl === undefined) {
-            throw new Error('desktop welcome: login link is unavailable')
-          }
-          await clipboard.writeText(platformLoginUrl(state.attempt.authorizeUrl))
-        },
-        saveApiKey: async (apiKey) => {
-          if (backend.host === undefined || welcomeBackend === undefined) return { ok: false }
-          const saved = await welcomeBackend.save(apiKey)
-          if (!saved.ok) return saved
+        ...welcomeOperations,
+        skip: async () => {
           await enterWorkspace()
-          return { ok: true }
+          if (!enteredWorkspace || readWelcomeProgress(app.getPath('userData')) !== 'new') return
+          writeWelcomeProgress(app.getPath('userData'), 'welcomed')
+          void showSetup().catch((error: unknown) => { console.error('desktop welcome: model API setup could not open', error) })
         },
-        skip: enterWorkspace,
       })
       const window = welcomeWindow
       window.once('closed', () => {
@@ -1455,12 +1526,15 @@ async function main(): Promise<void> {
     writeDesktopLocaleCache(app.getPath('userData'), locale.id)
     windowsLanguage = locale.id
     refreshApplicationMenu()
-    if (!enteredWorkspace && needsWelcome({ loggedIn: state.loggedIn, hasApiKey: state.hasApiKey })) {
+    // Welcome appears only until its first dismissal; a launch that ended before setup closed shows setup again.
+    const progress = readWelcomeProgress(app.getPath('userData'))
+    if (!enteredWorkspace && progress === 'new' && needsWelcome({ loggedIn: state.loggedIn, hasApiKey: state.hasApiKey })) {
       // A later login must retain its own activation policy instead of replaying startup focus.
       raiseAfterUpdate = false
       await showWelcome()
     } else {
       await enterWorkspace()
+      if (progress === 'welcomed' && enteredWorkspace) await showSetup()
     }
   }
   focusPrimaryWindow = () => {

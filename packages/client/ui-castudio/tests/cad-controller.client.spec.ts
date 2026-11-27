@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 import { CadController, cadErrorKind, projectForWorkspace } from '../src/client/cad-controller.ts'
-import type { StudioBridge } from '../src/client/types.ts'
+import type { SessionId } from '@deepseek-ai/dsh-session/types'
+import type { StudioBridge, StudioServiceStatus } from '../src/client/types.ts'
 
 interface Row { id: string; name: string; workspacePath: string }
 
@@ -141,5 +142,43 @@ describe('native CAD workspace integration', () => {
     expect(await controller.remove('project-1')).toBe(false)
     expect(controller.snapshot.getSnapshot().error).toMatchObject({ kind: 'operation' })
     expect(controller.snapshot.getSnapshot().projects.map(project => project.id)).toEqual(['project-1'])
+  })
+
+  it('records the host color scheme and locale the embedded workbench starts with', () => {
+    const controller = new CadController(harness().transport, async () => {})
+    controller.setTheme('dark')
+    controller.setLocale('zh')
+    expect(controller.snapshot.getSnapshot()).toMatchObject({ theme: 'dark', locale: 'zh' })
+  })
+
+  it('reloads a failed project list once the desktop service becomes ready, and restarts it on request', async () => {
+    const { transport, request } = harness()
+    let publish: (status: StudioServiceStatus) => void = () => {}
+    const restart = vi.fn(async () => {})
+    const bridge: StudioBridge = { ...transport, service: {
+      status: async () => ({ state: 'failed', reason: 'port-in-use', detail: 'code 76' }),
+      restart,
+      onStatus: (listener) => { publish = listener; return () => {} },
+    } }
+    const controller = new CadController(bridge, async () => {})
+    await vi.waitFor(() => expect(controller.snapshot.getSnapshot().service).toMatchObject({ state: 'failed', reason: 'port-in-use' }))
+    request.mockRejectedValueOnce(new Error('CAStudio service is not available (failed: port-in-use)'))
+    expect(await controller.load()).toBe(false)
+    await controller.restartService()
+    expect(restart).toHaveBeenCalledTimes(1)
+    publish({ state: 'starting' })
+    publish({ state: 'ready' })
+    await vi.waitFor(() => expect(controller.snapshot.getSnapshot().projects.map(project => project.id)).toEqual(['project-1']))
+    expect(controller.snapshot.getSnapshot()).toMatchObject({ error: null, service: { state: 'ready' } })
+    publish({ state: 'ready' })
+    expect(request.mock.calls.filter(([path]) => path === '/api/dsh/projects')).toHaveLength(2)
+  })
+
+  it('numbers every request to show a file so a frame can tell a new request from one it already sent', () => {
+    const controller = new CadController(harness().transport, async () => {})
+    expect(controller.snapshot.getSnapshot().openRequest).toBeNull()
+    controller.requestOpen('s1' as SessionId, { projectId: 'project-1', path: 'a.step' })
+    controller.requestOpen('s1' as SessionId, { projectId: 'project-1', part: 'arm', path: 'a.step' })
+    expect(controller.snapshot.getSnapshot().openRequest).toEqual({ seq: 2, sessionId: 's1', projectId: 'project-1', part: 'arm', path: 'a.step' })
   })
 })

@@ -27,6 +27,9 @@ from .projection import Product, find_product, project_product
 
 PACKAGE_MEDIA_TYPE = "application/vnd.castudio.scadpkg"
 PREVIEW_MEDIA_TYPE = "application/vnd.castudio.preview"
+# The editor that receives the posts is on 127.0.0.1; never route it through
+# http_proxy or the Windows registry system proxy.
+_LOCAL = urllib.request.build_opener(urllib.request.ProxyHandler({}))
 
 
 class LiveUnavailableError(RuntimeError):
@@ -131,7 +134,7 @@ def publish_preview(url: str, *, step: str = "", timeout: float = 60.0) -> dict[
         method="POST",
     )
     try:
-        with urllib.request.urlopen(request, timeout=timeout) as response:
+        with _LOCAL.open(request, timeout=timeout) as response:
             response.read()
     except (urllib.error.URLError, OSError) as error:
         raise RuntimeError(f"publishing the preview to {url} failed: {error}") from error
@@ -157,7 +160,7 @@ def publish_live(url: str, *, step: str = "", timeout: float = 60.0) -> LivePack
         method="POST",
     )
     try:
-        with urllib.request.urlopen(request, timeout=timeout) as response:
+        with _LOCAL.open(request, timeout=timeout) as response:
             response.read()
     except (urllib.error.URLError, OSError) as error:
         raise RuntimeError(f"publishing the package to {url} failed: {error}") from error

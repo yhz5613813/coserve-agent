@@ -13,6 +13,7 @@ import type {
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import { assertNever } from '@deepseek-ai/dsh-util-values'
 import { workspaceTitleOf } from '@deepseek-ai/dsh-util-workspace-path'
+import type { SessionSubgroup } from './session-subgroups.ts'
 
 /** Group key for Sessions outside every Workspace. */
 export const UNGROUPED_KEY = ''
@@ -61,6 +62,13 @@ export interface SessionNode {
   updatedAt: number
   /** Session working directory; absent when the Host reports none or an empty path. */
   cwd?: string
+  /**
+   * Secondary group within the owning Workspace group; present on every row
+   * of a sub-grouped Workspace except the provisional New Session row, with
+   * `key` {@link UNGROUPED_KEY} and an empty label for the trailing
+   * ungrouped run.
+   */
+  subgroup?: SessionSubgroup
 }
 
 /** Session order selected by the Workspace browser. */
@@ -113,6 +121,8 @@ export interface TreeView {
   expandedGroups: readonly string[]
   /** Browser-local order for Sessions without a backing Workspace account. */
   ungroupedOrder?: readonly string[]
+  /** Secondary group of one Workspace member; absent leaves every Workspace group flat. */
+  subgroupOf?: (session: SessionSummary) => SessionSubgroup | undefined
 }
 
 interface Group {
@@ -405,6 +415,38 @@ function sessionNode(
   }
 }
 
+/** Subgroup of the ungrouped run trailing a sub-grouped Workspace; the renderer localizes its label. */
+const UNGROUPED_SUBGROUP: SessionSubgroup = { key: UNGROUPED_KEY, label: '' }
+
+/**
+ * Partition sectioned rows into contiguous subgroup runs in order of first
+ * appearance, with the ungrouped run last. The provisional New Session row
+ * stays first without a subgroup, and each run keeps the sectioned order, so
+ * pinned rows still lead within their run. Rows are returned unchanged when
+ * no other row has a subgroup.
+ */
+function subgroupNodes(
+  rows: readonly { readonly session: SessionSummary; readonly node: SessionNode }[],
+  subgroupOf: (session: SessionSummary) => SessionSubgroup | undefined,
+): SessionNode[] {
+  const lead: SessionNode[] = []
+  const runs = new Map<string, { readonly subgroup: SessionSubgroup; readonly nodes: SessionNode[] }>()
+  const rest: SessionNode[] = []
+  for (const { session, node } of rows) {
+    const subgroup = node.blank ? undefined : subgroupOf(session)
+    if (node.blank) lead.push(node)
+    else if (subgroup === undefined) rest.push({ ...node, subgroup: UNGROUPED_SUBGROUP })
+    else {
+      const run = runs.get(subgroup.key)
+      if (run === undefined) runs.set(subgroup.key, { subgroup, nodes: [{ ...node, subgroup }] })
+      else run.nodes.push({ ...node, subgroup: run.subgroup })
+    }
+  }
+  return runs.size === 0
+    ? rows.map(row => row.node)
+    : [...lead, ...[...runs.values()].flatMap(run => run.nodes), ...rest]
+}
+
 /**
  * Derive the workspace browser groups with every session as a top-level row.
  *
@@ -412,13 +454,15 @@ function sessionNode(
  * without visible members; sessions populate under expanded groups with
  * pinned rows leading in the selected local order. Earlier unsent Sessions remain
  * visible alongside the selected provisional New Session row; archived
- * sessions keep their slots and appear per the archived filter. Content
+ * sessions keep their slots and appear per the archived filter. With
+ * `view.subgroupOf`, each Workspace group's rows are partitioned into
+ * contiguous subgroup runs (the Ungrouped bucket stays flat). Content
  * search lives outside this derivation (see {@link deriveSearchResults}).
  * @param list - sessions list snapshot (`mainView` retention feeds containsCurrent).
  * @param workspaces - real Workspaces in Host group order with caller-projected Session order.
  * @param rowState - registry-global pin and archive sets plus the archived filter.
  * @param statuses - unified UI status by Session.
- * @param view - local expansion arrays.
+ * @param view - local expansion arrays and the optional subgroup resolver.
  * @returns group sections in render order.
  */
 export function deriveGroups(
@@ -438,6 +482,8 @@ export function deriveGroups(
   const groups: GroupNode[] = []
   for (const g of groupByWorkspace(list, workspaces, archived, rowState.archivedFilter, view.ungroupedOrder)) {
     const expanded = expandedGroups.has(g.key)
+    const rows = (expanded ? sectionMembers(g.sessions, pinned, archived, current) : [])
+      .map(session => ({ session, node: sessionNode(session, list, statuses, pinned, archived, current) }))
     groups.push({
       key: g.key,
       workspaceId: g.workspaceId,
@@ -447,10 +493,9 @@ export function deriveGroups(
       sessionCount: g.sessions.length,
       expanded,
       containsCurrent: g.key === currentGroup,
-      sessions: expanded
-        ? sectionMembers(g.sessions, pinned, archived, current)
-          .map(session => sessionNode(session, list, statuses, pinned, archived, current))
-        : [],
+      sessions: view.subgroupOf === undefined || g.key === UNGROUPED_KEY
+        ? rows.map(row => row.node)
+        : subgroupNodes(rows, view.subgroupOf),
     })
   }
   return groups

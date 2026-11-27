@@ -1,10 +1,11 @@
 import { useEffect, useState } from 'react';
 import { withParameterValues, type ParameterState } from '../../shared/parameters';
 import { api } from '../api';
-export function ParameterEditor({ projectId, source, disabled, run, changed, editState }: {
+export function ParameterEditor({ projectId, source, disabled, run, changed, editState, confirmDiscard }: {
   projectId: string; source: string; disabled: boolean;
   run: (hash: string | null) => Promise<void>; changed: () => Promise<void>;
   editState: (state: { dirty: boolean; working: boolean }) => void;
+  confirmDiscard: (dirty: boolean, text: string, proceed: () => void) => void;
 }) {
   const [state, setState] = useState<ParameterState | null>(null), [draft, setDraft] = useState<Record<string, string>>({});
   const [error, setError] = useState(''), [notice, setNotice] = useState(''), [working, setWorking] = useState(false);
@@ -27,11 +28,10 @@ export function ParameterEditor({ projectId, source, disabled, run, changed, edi
       withParameterValues(state.document, values);
     } catch (e) { validation = (e as Error).message; }
   }
-  const reload = async () => {
-    if (dirty && !window.confirm('重新载入会放弃尚未保存的参数修改，继续吗？')) return;
+  const reload = () => confirmDiscard(dirty, '参数有未保存修改，重新载入会丢弃这些修改。', async () => {
     setWorking(true); setError(''); setNotice('');
     try { accept(await api.parameters(projectId, source)); } catch (e) { setError((e as Error).message); } finally { setWorking(false); }
-  };
+  });
   const save = async (build: boolean) => {
     if (!state || validation) return;
     setWorking(true); setError(''); setNotice('');
@@ -52,7 +52,7 @@ export function ParameterEditor({ projectId, source, disabled, run, changed, edi
     <div className="build-actions">
       {state?.document && <button className="button" disabled={disabled || working || !dirty || !!validation} onClick={() => void save(false)}>保存参数</button>}
       <button className="button primary" disabled={disabled || working || !state || !!validation} onClick={() => void save(true)}>{working ? '正在处理…' : dirty ? '保存参数并构建' : '运行已保存源码'}</button>
-      <button className="button" disabled={working || disabled} onClick={() => void reload()}>重新载入参数</button>
+      <button className="button" disabled={working || disabled} onClick={reload}>重新载入参数</button>
       {dirty && <small>有未保存的参数修改</small>}
     </div>
   </div>;

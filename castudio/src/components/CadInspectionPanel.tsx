@@ -38,7 +38,7 @@ export function CadInspectionPanel({ projectId, files, currentFile, currentHash,
   const [jobs, setJobs] = useState<CadInspectionJob[]>([]), [selected, setSelected] = useState('');
   const [error, setError] = useState(''), [working, setWorking] = useState(false);
   const live = useRef(true), readEpoch = useRef(0), callbacks = useRef({ changed }); callbacks.current = { changed };
-  const base = '/api/projects/' + encodeURIComponent(projectId) + '/cad-inspections';
+  const base = 'api/projects/' + encodeURIComponent(projectId) + '/cad-inspections';
   const row = jobs.find(job => job.id === selected) || jobs[0];
   const densityValue = density.trim() ? Number(density) : undefined;
   const densityValid = densityValue === undefined || (Number.isFinite(densityValue) && densityValue > 0 && densityValue <= 100000);

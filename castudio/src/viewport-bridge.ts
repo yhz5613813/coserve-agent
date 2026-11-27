@@ -1,4 +1,4 @@
-import type { ViewportCommand, ViewportState } from '../shared/viewport';
+import type { ViewportCommand, ViewportPanel, ViewportPart, ViewportState } from '../shared/viewport';
 import type { MeshInfo, Selection, ViewOptions } from './scene/renderer';
 import type { PreviewState } from './scene/review-selection';
 import type { ViewportHandle } from './components/Viewport';
@@ -13,6 +13,7 @@ export type ViewportReportInput = {
   selection: Selection | null;
   options: ViewOptions;
   camera: ViewportState['camera'];
+  part?: ViewportPart;
 };
 
 export function buildViewportState(input: ViewportReportInput): ViewportState {
@@ -40,6 +41,7 @@ export function buildViewportState(input: ViewportReportInput): ViewportState {
     selection,
     options: { ...input.options },
     camera: input.camera,
+    ...(input.part ? { part: { ...input.part } } : {}),
   };
 }
 
@@ -50,6 +52,11 @@ export type ViewportBridgeDeps = {
   setOptions: (update: ViewOptions | ((old: ViewOptions) => ViewOptions)) => void;
   setMeshes: (update: MeshInfo[] | ((old: MeshInfo[]) => MeshInfo[])) => void;
   openWorkspace: (mode: ViewportState['workspace']) => void;
+  /** Expands a collapsed viewer panel so the canvas has its real size before capture. */
+  revealViewer: () => void;
+  /** Shows `path` of part `part` (current part when omitted); resolves to an error message when it cannot. */
+  openModel: (path: string, part?: string) => Promise<string | null>;
+  setPanel: (panel: ViewportPanel, state: 'expand' | 'collapse') => void;
   buildState: () => ViewportState;
   wait?: () => Promise<void>;
 };
@@ -77,11 +84,19 @@ export async function applyViewportCommand(command: ViewportCommand, deps: Viewp
         break;
       case 'options': deps.setOptions(old => ({ ...old, ...command.options })); break;
       case 'workspace': deps.openWorkspace(command.workspace); break;
-      case 'snapshot': deps.openWorkspace('model'); break;
+      // The model stage stays laid out behind other pages, so a capture never switches the user's page.
+      case 'snapshot': deps.revealViewer(); break;
+      case 'open': { const error = await deps.openModel(command.path, command.part); if (error) return { ok: false, error }; deps.revealViewer(); break; }
+      case 'panel': deps.setPanel(command.panel, command.state); break;
       default: return { ok: false, error: '未知视口指令' };
     }
   } catch (error) { return { ok: false, error: (error as Error).message }; }
   await (deps.wait ?? tick)();
+  // A part switch resets the page first; report once the requested model is the one shown (about 3 s at most).
+  if (command.action === 'open') {
+    const shown = () => { const state = deps.buildState(); return state.model.path === command.path && (command.part === undefined || (state.part?.slug ?? 'default') === command.part); };
+    for (let i = 0; i < 20 && !shown(); i++) await (deps.wait ?? tick)();
+  }
   if (command.action === 'snapshot') {
     const snapshot = handle.snapshotData();
     if (!snapshot) return { ok: false, error: '视口截图失败' };

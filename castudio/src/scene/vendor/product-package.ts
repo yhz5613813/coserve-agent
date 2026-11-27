@@ -186,7 +186,7 @@ function canonicalJson(value: unknown): string {
 
 async function sha256(payload: Uint8Array): Promise<string> {
   const view = payload.buffer.slice(payload.byteOffset, payload.byteOffset + payload.byteLength) as ArrayBuffer;
-  const bytes = new Uint8Array(await crypto.subtle.digest('SHA-256', view));
+  const bytes = new Uint8Array(await studioSha256(view));
   return `sha256:${Array.from(bytes, (byte) => byte.toString(16).padStart(2, '0')).join('')}`;
 }
 

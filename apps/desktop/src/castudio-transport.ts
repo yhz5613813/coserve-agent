@@ -2,15 +2,21 @@
 import { createParser } from 'eventsource-parser'
 import type { CAStudioEvent } from './castudio-protocol.ts'
 
+const LOOPBACK_HOSTNAMES = new Set(['127.0.0.1', 'localhost', '[::1]'])
+
 /**
- * Validate the locally configured service address before any request.
+ * Validate the locally configured service address before any request. The desktop and the service manager both use
+ * this check, so every accepted origin is one the service manager can probe.
  * @param value - Desktop launch configuration, never supplied by the renderer.
  * @returns The service origin, with no path or credentials.
+ * @throws when the origin is not HTTP(S) on 127.0.0.1, localhost, or [::1], or names port 0.
  */
 export function caStudioOrigin(value: string): string {
   const url = new URL(value)
-  if (url.protocol !== 'http:' || url.hostname !== '127.0.0.1' || url.username || url.password
-    || url.pathname !== '/' || url.search || url.hash) throw new Error('CAStudio must use an HTTP origin on 127.0.0.1')
+  if ((url.protocol !== 'http:' && url.protocol !== 'https:') || !LOOPBACK_HOSTNAMES.has(url.hostname) || url.port === '0'
+    || url.username || url.password || url.pathname !== '/' || url.search || url.hash) {
+    throw new Error(`CAStudio must use an HTTP(S) origin on 127.0.0.1, localhost, or [::1] with a nonzero port: ${value}`)
+  }
   return url.origin
 }
 

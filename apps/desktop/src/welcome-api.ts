@@ -15,10 +15,17 @@ export const WELCOME_IPC = {
   copyLink: 'dsh-welcome:copy-link',
   state: 'dsh-welcome:state',
   takeNotice: 'dsh-welcome:take-notice',
+  projectsFolder: 'dsh-welcome:projects-folder',
+  chooseProjectsFolder: 'dsh-welcome:choose-projects-folder',
 } as const
 
 /** Credential writes return a safe outcome without exposing Host diagnostics. */
 export type WelcomeSaveResult = { readonly ok: true } | { readonly ok: false }
+
+/** Outcome of the CAD project folder picker; every status except `changed` keeps the previous folder. */
+export type WelcomeFolderResult =
+  | { readonly status: 'changed'; readonly folder: string }
+  | { readonly status: 'cancelled' | 'invalid' | 'failed' }
 
 /** One-time notification retained by the main process until Welcome receives it. */
 export type WelcomeNotice = 'session-expired'
@@ -43,18 +50,30 @@ export interface WelcomeOperations {
   /**
    * Store the official provider's key before entering the workspace.
    * @param value - validated, trimmed API key.
+   * @param baseURL - optional http(s) endpoint for the official provider; absent keeps the configured one.
    * @returns whether the write completed, without private error details.
    */
-  saveApiKey(value: string): Promise<WelcomeSaveResult>
+  saveApiKey(value: string, baseURL?: string): Promise<WelcomeSaveResult>
+  /** @returns the effective CAD project folder in portable builds, where the user may change it; otherwise undefined. */
+  projectsFolder(): Promise<string | undefined>
+  /** @returns the outcome after the native folder picker closes; a `changed` folder applies to CAStudio immediately. */
+  chooseProjectsFolder(): Promise<WelcomeFolderResult>
   /**
-   * Enter the workspace without writing an onboarding-completion setting.
-   * @returns completion after the workspace opens.
+   * `welcome` mode: enter the workspace; `setup` mode: dismiss the setup window without saving.
+   * @returns completion after the workspace opens or the setup window closes.
    */
   skip(): Promise<void>
 }
 
+/**
+ * `welcome`: the first-launch window whose only action enters the workspace through `skip`;
+ * `setup`: the one-time modal over the workspace that saves the model API key, Base URL, and CAD project folder.
+ */
+export type WelcomeMode = 'welcome' | 'setup'
+
 /** The renderer receives localized copy, login operations, and safe account snapshots. */
 export type WelcomeApi = DesktopLocale & WelcomeOperations & {
+  readonly mode: WelcomeMode
   /** @param listener - safe account snapshot recipient. @returns subscription disposer. */
   onAccountState(listener: (state: AccountView) => void): () => void
 }

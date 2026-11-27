@@ -5,6 +5,7 @@ import { OBJLoader } from 'three/addons/loaders/OBJLoader.js';
 import { unzipSync, strFromU8 } from 'fflate';
 import { importStep, type ImportOptions } from './step';
 import { loadScenePackage } from './package';
+import type { AssemblyView } from '../../shared/types';
 
 const MAX = 128 * 1024 * 1024;
 export function unpackPreview(data: Uint8Array) {
@@ -56,12 +57,33 @@ async function parseModel(name: string, data: ArrayBuffer, options: ImportOption
   if (/\.(glb|gltf|zip|scadpkg)$/i.test(name)) root.rotation.x = Math.PI / 2;
   return root;
 }
+/**
+ * Loads every visible, readable component of an assembly with `loadModel` and places it at its transform (mm; degrees X→Y→Z).
+ * Each component is a top-level node named after it, and its meshes are grouped under that name in the model tree.
+ */
+export async function loadAssembly(assembly: AssemblyView, options: ImportOptions = {}): Promise<THREE.Group> {
+  const root = new THREE.Group(); root.name = 'assembly.json';
+  const shown = assembly.components.filter(c => c.visible !== false && !c.missing);
+  for (const [index, component] of shown.entries()) {
+    const label = component.name || `${component.part} · ${component.path.split('/').pop()}`;
+    options.progress?.(`正在载入组件 ${index + 1}/${shown.length}：${label}`);
+    const response = await fetch(component.url, { signal: options.signal });
+    if (!response.ok) throw new Error(`组件 ${label} 读取失败`);
+    const node = new THREE.Group(); node.name = label; node.userData.assembly_group = label;
+    node.position.fromArray(component.position);
+    node.rotation.set(...component.rotation.map(THREE.MathUtils.degToRad) as [number, number, number]);
+    node.add(await loadModel(component.path, await response.arrayBuffer(), { ...options, progress: text => options.progress?.(`${label}：${text}`) }));
+    root.add(node);
+  }
+  if (!root.children.length) throw new Error(assembly.components.length ? '装配中没有可显示的组件（组件已隐藏或文件缺失）' : '装配还没有组件，在装配面板中添加');
+  return root;
+}
 export async function loadModel(name: string, data: ArrayBuffer, options: ImportOptions = {}): Promise<THREE.Group> {
   options.signal?.throwIfAborted();
   if (data.byteLength > MAX) throw new Error('模型超过 128 MB');
   // STEP transfers ownership of this buffer to its worker. Hash before parsing
   // so every selection identifies the original file, never a detached buffer.
-  const hash = await crypto.subtle.digest('SHA-256', data);
+  const hash = await studioSha256(data);
   options.signal?.throwIfAborted();
   const root = await parseModel(name, data, options);
   const sourceHash = 'sha256:' + Array.from(new Uint8Array(hash), b => b.toString(16).padStart(2, '0')).join('');

@@ -5,13 +5,22 @@ import { createHash, randomUUID } from 'node:crypto';
 import { Store, HttpError, jsonRead, jsonWrite, safePath } from './storage.js';
 import { runProcess } from './process.js';
 import type { Express, Request, Response } from 'express';
-type Run = { id:string; state:string; createdAt:string; source:string; sourceHash:string; log:string; output?:string; error?:string; summary?:any; progress?:any };
-export function structuralRoutes(app:Express,store:Store,validateGeometry:typeof checkParametricBindings=checkParametricBindings) {
+type Run = { id:string; state:string; createdAt:string; source:string; sourceHash:string; material?:{E_MPa:number;nu:number}; log:string; output?:string; error?:string; summary?:any; progress?:any };
+/** `finished(id)` runs after a run of project `id` has recorded its final state. */
+export function structuralRoutes(app:Express,store:Store,validateGeometry:typeof checkParametricBindings=checkParametricBindings,finished:(id:string)=>void=()=>{}) {
   const active=new Map<string,{abort:AbortController;done:Promise<void>}>();
   let preparing=false;
   const root=(id:string)=>path.join(store.workspace(id),'structural');
   const valid=(id:string)=>{if(!/^[a-f0-9-]{36}$/.test(id))throw new HttpError(400,'无效任务编号');return id;};
   const config=()=>jsonRead<any>(path.join(store.root,'structural-runtime.json'),null);
+  const workRoot=(runtime:any)=>runtime?.workRoot||path.join(store.root,'structural-work');
+  // run.json keeps the absolute output folder of the install that ran it; after the data moves (another drive)
+  // the folder is found again under the current work root, and the stored path is used only when that one is missing.
+  const outputOf=async(r:Run)=>{
+    if(!r.output)return undefined;
+    const current=path.join(workRoot(await config()),r.id);
+    return current===r.output?current:await fs.access(current).then(()=>current,()=>r.output);
+  };
   const read=async(id:string,rid:string)=> {
     await store.project(id);
     const folder=path.join(root(id),valid(rid));let r=await jsonRead<Run|null>(path.join(folder,'run.json'),null);
@@ -22,6 +31,7 @@ export function structuralRoutes(app:Express,store:Store,validateGeometry:typeof
       if(latest)r=latest;
       if(['queued','running'].includes(r.state)&&!active.has(rid)){r.state='interrupted';await jsonWrite(path.join(folder,'run.json'),r);}
     }
+    r.output=await outputOf(r);
     r.progress=await jsonRead(path.join(r.output||path.join(folder,'result'),'status.json'),null);
     return r;
   };
@@ -40,12 +50,17 @@ export function structuralRoutes(app:Express,store:Store,validateGeometry:typeof
     const runtime=await config();if(!runtime)throw new HttpError(422,'尚未配置结构求解环境');
     const source=String(req.body.source||'');const src=await safePath(store.workspace(id),source);
     if(!/\.(step|stp)$/i.test(src))throw new HttpError(400,'请选择 STEP 文件');
-    let release:undefined|(()=>void)=allowQueue?undefined:store.acquire(id);const rid=randomUUID(),folder=path.join(root(id),rid);
-    const r:Run={id:rid,state:allowQueue?'queued':'running',createdAt:new Date().toISOString(),source,sourceHash:'',log:''};
+    // Parametric exports without a shell-boundary record (the plate template) are not cylinder shells.
+    if(path.relative(store.workspace(id),src).split(path.sep).join('/').startsWith('parametric/exports/')&&!await fs.access(src.replace(/\.(step|stp)$/i,'.bindings.json')).then(()=>true,()=>false))throw new HttpError(422,'该参数化导出没有圆柱壳仿真边界记录（如平板），结构求解器只支持圆柱壳');
+    const E_MPa=req.body.E_MPa??70000,nu=req.body.nu??.33;
+    if(!(typeof E_MPa==='number'&&E_MPa>0&&E_MPa<=1e6))throw new HttpError(400,'弹性模量 E 应为 0 到 1000000 MPa 之间的正数');
+    if(!(typeof nu==='number'&&nu>0&&nu<.5))throw new HttpError(400,'泊松比 ν 应大于 0 且小于 0.5');
+    let release:undefined|(()=>void)=allowQueue?undefined:store.acquire(id,'运行结构仿真');const rid=randomUUID(),folder=path.join(root(id),rid);
+    const r:Run={id:rid,state:allowQueue?'queued':'running',createdAt:new Date().toISOString(),source,sourceHash:'',material:{E_MPa,nu},log:''};
     let handedOff=false;
     try {
       const bytes=await fs.readFile(src);
-      r.output=path.join(runtime.workRoot||path.join(store.root,'structural-work'),rid);
+      r.output=path.join(workRoot(runtime),rid);
       r.sourceHash=createHash('sha256').update(bytes).digest('hex');
       const previous=req.body.resume_run?await read(id,String(req.body.resume_run)):null;
       if(previous&&previous.sourceHash!==r.sourceHash)throw new HttpError(400,'复用记录与当前 CAD 不同');
@@ -54,8 +69,8 @@ export function structuralRoutes(app:Express,store:Store,validateGeometry:typeof
       const snapshot=path.join(folder,'source.step');await fs.writeFile(snapshot,bytes);
       const request={geometry_model:undefined as any,presentation_images:undefined as any,semantic_bindings:null as any,reprocess_only:req.body.reprocess_only===true,diagnostics_fill_missing:req.body.diagnostics_fill_missing===true,resume_output:previous?.output,diagnostics:true,analysis:'cylinder_shell',geometry:snapshot,geometry_sha256:r.sourceHash,
         mesh_size_mm:req.body.mesh_size_mm??24,axial_force_N:req.body.axial_force_N??2451662.5,
-        external_pressure_MPa:req.body.external_pressure_MPa??.2,E_MPa:req.body.E_MPa??70000,
-        nu:req.body.nu??.33,mesh_study:req.body.mesh_study===true,mesh_levels_mm:req.body.mesh_levels_mm??[32,24,18],buckling:req.body.buckling!==false,report_python:runtime.reportPython};
+        external_pressure_MPa:req.body.external_pressure_MPa??.2,E_MPa,
+        nu,mesh_study:req.body.mesh_study===true,mesh_levels_mm:req.body.mesh_levels_mm??[32,24,18],buckling:req.body.buckling!==false,report_python:runtime.reportPython};
       await jsonWrite(path.join(folder,'request.json'),request);await jsonWrite(path.join(folder,'run.json'),r);
       const abort=new AbortController();
       const done=Promise.resolve().then(async()=>{
@@ -63,7 +78,7 @@ export function structuralRoutes(app:Express,store:Store,validateGeometry:typeof
           const deadline=Date.now()+10*60*1000;
           while(!release){
             abort.signal.throwIfAborted();
-            try{release=store.acquire(id);}catch(e){
+            try{release=store.acquire(id,'运行结构仿真');}catch(e){
               if(!(e instanceof HttpError)||e.status!==409||Date.now()>deadline)throw e;
               await new Promise(ok=>setTimeout(ok,300));
             }
@@ -84,7 +99,7 @@ export function structuralRoutes(app:Express,store:Store,validateGeometry:typeof
           if(!manifest||manifest.source_sha256!==r.sourceHash)throw Error('结果与源模型不匹配');
           r.summary=manifest.summary;r.state='succeeded';
         }catch(e){r.state=abort.signal.aborted?'cancelled':'failed';r.error=(e as Error).message;}
-        finally{await jsonWrite(path.join(folder,'run.json'),r);active.delete(rid);release?.();}
+        finally{await jsonWrite(path.join(folder,'run.json'),r);active.delete(rid);release?.();finished(id);}
       });
       active.set(rid,{abort,done});handedOff=true;res.status(202).json(r);
     }finally{if(!handedOff)release?.();}
@@ -101,5 +116,6 @@ export function structuralRoutes(app:Express,store:Store,validateGeometry:typeof
     const file=await safePath(r.output||path.join(root(req.params.id),r.id,'result'),String(req.query.path||''));
     if(req.query.download==='1')res.download(file);else res.sendFile(file);
   });
-  return {dispose:async()=>{for(const a of active.values())a.abort.abort();await Promise.allSettled([...active.values()].map(a=>a.done));}};
+  // A queued/running record without a live worker was interrupted (read() rewrites it the same way).
+  return {running:(rid:string)=>active.has(rid),dispose:async()=>{for(const a of active.values())a.abort.abort();await Promise.allSettled([...active.values()].map(a=>a.done));}};
 }

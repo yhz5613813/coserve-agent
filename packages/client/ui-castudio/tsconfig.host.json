@@ -7,7 +7,10 @@
   },
   "files": [
     "src/index.ts",
-    "src/optimization-driver.ts"
+    "src/optimization-driver.ts",
+    "src/part-marker.ts",
+    "src/part-projection.ts",
+    "src/types.ts"
   ],
   "references": [
     {
@@ -27,6 +30,9 @@
     },
     {
       "path": "../../core/session"
+    },
+    {
+      "path": "../../session/session-projection"
     },
     {
       "path": "../../core/tools"

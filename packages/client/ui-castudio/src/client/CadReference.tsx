@@ -7,3 +7,8 @@ import css from './CadReference.module.css'
 export function CadReference({ node }: UserTextNodeProps<'cad-selection'>) {
   return <span className={css.reference}><ReferenceChip appearance="file" label={node.data.label} title={`${node.data.label}\n${node.data.file}`} /></span>
 }
+
+/** Render the part a sent message continues using the native folder-reference treatment. */
+export function CadPartReference({ node }: UserTextNodeProps<'cad-part'>) {
+  return <span className={css.reference}><ReferenceChip appearance="folder" label={node.data.name} title={`${node.data.name}\n${node.data.folder}`} /></span>
+}

@@ -14,7 +14,7 @@
  * are slot entries with their own behavior, so this component threads no
  * action callbacks and hosts no action surface.
  */
-import { type CSSProperties, type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { type CSSProperties, Fragment, type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import clsx from 'clsx'
 import { WorkspaceDialogs } from './WorkspaceDialogs.tsx'
 import {
@@ -25,7 +25,7 @@ import {
   IconWorkspaceTreeOutlineRegular, Menu, Tooltip,
 } from '@deepseek-ai/dsh-client-ui-primitives'
 import type {
-  SessionListState, SessionSearchResultItem,
+  SessionListState, SessionSearchResultItem, SessionSummary,
 } from '@deepseek-ai/dsh-api-session-controller/client'
 import type { WorkspaceId, WorkspaceView } from '@deepseek-ai/dsh-api-workspace-controller/client'
 import { workspaceDisplayTitle } from '@deepseek-ai/dsh-api-workspace-controller/default-workspace'
@@ -37,6 +37,7 @@ import {
   deriveFlat, deriveGroups, deriveSearchResults, orderByRecency, owningGroupKey, owningParentFolder,
   pinCurrentBlank, reconcileManualOrder, sessionMemberIds, UNGROUPED_KEY,
 } from '../tree.ts'
+import { sessionSubgroupOf } from '../session-subgroups.ts'
 import { ProjectRowItem, SearchResultItem, SessionNodeItem } from './Rows.tsx'
 import { FLAT_SESSION_ORDER_KEY, type SessionGroupBy } from '../stores.ts'
 import { WorkspacePickFlow } from '../WorkspacePicker.tsx'
@@ -210,6 +211,8 @@ interface DragState {
   sessionId: SessionNode['id']
   /** Source row was pinned at drag start; drop targets share the pinned block. */
   pinned: boolean
+  /** Source row's secondary group key, absent outside sub-grouped Workspaces; drop targets share the subgroup run. */
+  subgroupKey?: string | undefined
   /** Row the marker sits on and which half (insert above/below it). */
   over: { id: SessionNode['id']; half: 'before' | 'after' } | null
 }
@@ -254,7 +257,7 @@ type SessionTreeProps = Pick<
   WorkspaceBrowserProps,
   'useSessionStatus' | 'startSession' | 'open' | 'renderFactorySlot' | 'useContextMenuTarget' | 'useContextMenu'
   | 'insertWorkspaceBefore' | 't' | 'usePanelInfo'
-  | 'useRemoteAccess' | 'useSessionAccess' | 'useWorkspaceAccess'
+  | 'useRemoteAccess' | 'useSessionAccess' | 'useWorkspaceAccess' | 'useSessionSubgroups'
 > & PropsRenderSlots<
   | 'sidebar.workspaces.session.row.action'
   | 'sidebar.session.row.trailing'
@@ -315,7 +318,7 @@ function SessionTree({
   list, useSessionStatus, startSession, open, workspaces, ungroupedSessionIds,
   rowState, onLeaveArchivedOnly,
   workspaceReady, animationResetKey, usePanelInfo, useRemoteAccess, useSessionAccess, useWorkspaceAccess,
-  onSessionRenameRequest,
+  useSessionSubgroups, onSessionRenameRequest,
   renderSlot, renderFactorySlot, useContextMenuTarget, useContextMenu,
   insertWorkspaceBefore,
   nestWorkspaces, groupExpansion, setGroupExpanded,
@@ -369,12 +372,16 @@ function SessionTree({
     return [...workspaces.map(workspace => workspace.workspaceId), UNGROUPED_KEY]
       .filter(key => groupExpansion[key] ?? ancestorKeys.has(key))
   }, [groupExpansion, parents, workspaces])
+  const subgroupProviders = useSessionSubgroups(providers => providers)
   const groups = useMemo(
     () => deriveGroups(list, workspaces, rowState, statuses, {
       expandedGroups,
       ungroupedOrder: ungroupedSessionIds,
+      ...(subgroupProviders.length === 0
+        ? {}
+        : { subgroupOf: (session: SessionSummary) => sessionSubgroupOf(subgroupProviders, session) }),
     }),
-    [list, workspaces, rowState, statuses, expandedGroups, ungroupedSessionIds],
+    [list, workspaces, rowState, statuses, expandedGroups, ungroupedSessionIds, subgroupProviders],
   )
   useEffect(() => {
     for (let key = revealGroup; key !== undefined; key = parents.get(key)) {
@@ -480,7 +487,12 @@ function SessionTree({
     rowKeys.push(`workspace:${group.key}`)
     const childRows = group.expanded ? children.map(child => renderGroup(child, depth + 1)) : []
     const sessions = visible.rows
-    for (const node of sessions) rowKeys.push(`session:${node.id}`)
+    sessions.forEach((node, index) => {
+      if (node.subgroup !== undefined && node.subgroup.key !== sessions[index - 1]?.subgroup?.key) {
+        rowKeys.push(`subgroup:${group.key}:${node.subgroup.key}`)
+      }
+      rowKeys.push(`session:${node.id}`)
+    })
     if (collapsed.hiddenCount > 0) rowKeys.push(`overflow:${group.key}`)
     const workspaceMarker = workspaceId !== undefined && workspaceDrag?.over?.id === workspaceId
       ? workspaceDrag.over.half
@@ -577,17 +589,20 @@ function SessionTree({
             {childRows}
           </div>
         )}
-        {sessions.map((node) => {
+        {sessions.map((node, index) => {
         // Session drag never leaves its browser-local account, and pinned
-        // rows reorder only within their leading pinned block.
+        // rows reorder only within their leading pinned block of one subgroup run.
           const sameGroupDrag = drag !== null && drag.accountKey === group.key
-          const compatibleTarget = sameGroupDrag && drag.pinned === node.pinned
+          const compatibleTarget = sameGroupDrag && drag.pinned === node.pinned && drag.subgroupKey === node.subgroup?.key
+          const subgroupHeading = node.subgroup !== undefined && node.subgroup.key !== sessions[index - 1]?.subgroup?.key
+            ? node.subgroup
+            : undefined
           const normalizeHalf = (half: 'before' | 'after'): 'before' | 'after' =>
             node.blank ? 'after' : half
           const dragProps = {
             start: () => {
               sessionDropCommitted.current = false
-              setDrag({ accountKey: group.key, sessionId: node.id, pinned: node.pinned, over: null })
+              setDrag({ accountKey: group.key, sessionId: node.id, pinned: node.pinned, subgroupKey: node.subgroup?.key, over: null })
             },
             active: compatibleTarget,
             marker: sameGroupDrag && drag.over?.id === node.id ? drag.over.half : null,
@@ -608,7 +623,7 @@ function SessionTree({
               sessionDropCommitted.current = false
             },
           }
-          return (
+          const row = (
             <SessionNodeItem
               key={node.id}
               node={node}
@@ -627,6 +642,18 @@ function SessionTree({
               useSessionAccess={useSessionAccess}
               t={t}
             />
+          )
+          if (subgroupHeading === undefined) return row
+          const headingKey = `subgroup:${group.key}:${subgroupHeading.key}`
+          return (
+            <Fragment key={node.id}>
+              <div className={css.sessionSubgroupHeading} data-row-key={headingKey} role="presentation">
+                <span className={css.sessionSubgroupLabel}>
+                  {subgroupHeading.key === UNGROUPED_KEY ? t('subgroup.ungrouped') : subgroupHeading.label}
+                </span>
+              </div>
+              {row}
+            </Fragment>
           )
         })}
         {collapsed.hiddenCount > 0 && (
@@ -921,6 +948,7 @@ export function WorkspaceBrowser({
   useHostInfo,
   useShortcuts,
   useWorkspaceShortcuts,
+  useSessionSubgroups,
   requestSearch,
   requestAddWorkspace,
   closeAddWorkspace,
@@ -1403,6 +1431,7 @@ export function WorkspaceBrowser({
                 useRemoteAccess={useRemoteAccess}
                 useSessionAccess={useSessionAccess}
                 useWorkspaceAccess={useWorkspaceAccess}
+                useSessionSubgroups={useSessionSubgroups}
                 usePanelInfo={usePanelInfo}
                 list={list}
                 shortcuts={shortcuts}

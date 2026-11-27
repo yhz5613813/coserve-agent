@@ -106,7 +106,7 @@ pre-step 监听器在等待投影注册完成之前安装。激活期间到达�
 
 #### 模型看到什么
 
-在 CAStudio 状态发生变化的每一轮，一条带来源标记的上下文消息，包含下方标题与正文。`<project-list>` 是每个项目一行 `- "<name>" — id <id>, workspace <path>; CAD skill guide: <path>\.agents\skills\castudio\SKILL.md`，按 id 排序并以 `maxProjects` 为上限。`<workbench-list>` 仅在至少一个工作台视口已连接时出现。
+在 CAStudio 状态发生变化的每一轮，一条带来源标记的上下文消息，包含下方标题与正文。`<project-list>` 是每个项目一行 `- "<name>" — id <id>, workspace <path>; CAD skill guide: <path>/.agents/skills/castudio/SKILL.md`，按 id 排序并以 `maxProjects` 为上限。`<path>` 含反斜杠且不含正斜杠时，指南路径使用反斜杠，否则使用正斜杠。`<workbench-list>` 仅在至少一个工作台视口已连接时出现；每个条目包含一行 `Project / Part: "<project>" / "<part name>" (<slug>) — part files are in <location>; model paths are relative to it`，其中 `<location>` 对 `default` 零件（页面未报告零件时同样按此处理）为 workspace 根目录，否则为 `parts/<slug>/ under the workspace root`；以及一行 `Meshes: <n> total`，统计视口中的网格数量。切换零件会改变稳定状态，并重新注入读数。
 
 ##### 变化轮次的读数
 

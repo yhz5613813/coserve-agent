@@ -101,6 +101,10 @@ export function viewportRoutes(app: Express, store: Store, events: Events, optio
     const client = clientOf(req.query.client);
     const entry = states.get(instanceKey(id, client));
     if (!isConnected(entry?.reportedAt ?? null, now())) throw new HttpError(409, 'CAD 工作台未打开或视口无响应');
+    // A command that names a part only runs against a viewer showing that part; `open` is how the viewer changes part.
+    const shown = entry!.state.part?.slug ?? 'default';
+    if (command.part !== undefined && command.action !== 'open' && command.part !== shown)
+      throw new HttpError(409, `视口当前显示零件 ${shown}，不是 ${command.part}；请先用 open 切换零件`);
     const mesh = viewportCommandMeshId(command);
     if (mesh !== null && !entry!.state.meshes.some(item => item.id === mesh)) throw new HttpError(422, `未找到网格 ${mesh}`);
     const commandId = randomUUID(), expiresAt = now() + VIEWPORT_COMMAND_TTL_MS;

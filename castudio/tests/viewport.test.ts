@@ -342,3 +342,22 @@ test('one project keeps a separate viewport per CAD instance', async () => {
     assert.equal((await pending).status, 200);
   } finally { await f.cleanup(); }
 });
+
+test('a command naming a part runs only while the viewer shows it; open may name any part', async () => {
+  const f = await fixture();
+  try {
+    const stream = await f.connect();
+    autoPage(stream, command => ({ ok: true, state: state({ part: { slug: command.part ?? 'shaft', name: '轴' } }) }), (id, body) => f.result(id, body));
+    assert.equal((await f.putState(state({ part: { slug: 'shaft', name: '轴' } }))).status, 204);
+    const mismatch = await f.command({ action: 'fit', part: 'housing' });
+    assert.equal(mismatch.status, 409);
+    assert.match((await mismatch.json()).error, /当前显示零件 shaft，不是 housing/);
+    assert.equal((await f.command({ action: 'fit', part: 'shaft' })).status, 200);
+    const opened = await f.command({ action: 'open', path: 'housing.step', part: 'housing' });
+    assert.equal(opened.status, 200);
+    assert.deepEqual((await opened.json()).state.part, { slug: 'housing', name: '轴' });
+    for (const bad of [{ action: 'open', path: '../x.step' }, { action: 'open', path: '/abs.step' }, { action: 'fit', part: 'Bad' }, { action: 'panel', panel: 'chat', state: 'expand' }])
+      assert.equal((await f.command(bad)).status, 422, JSON.stringify(bad));
+    assert.equal((await f.putState(state({ part: { slug: 'x', name: 'n', extra: 1 } }))).status, 422);
+  } finally { await f.cleanup(); }
+});

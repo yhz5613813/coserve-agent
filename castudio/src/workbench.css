@@ -1,0 +1,61 @@
+/* Four role-fixed panels on the model page; placement comes from workbench-layout.ts. */
+/* A hidden model stage stays laid out (see theme.css) so viewport captures keep the canvas size. */
+.model-workspace{position:relative}
+.model-stage>.workbench{flex:1;min-height:0}
+.workbench{display:grid;gap:0;min-height:0;min-width:0;overflow:hidden;--wb-line:var(--embed-border,var(--line));--wb-head:var(--embed-panel,var(--panel));--wb-muted:var(--embed-muted,var(--muted));--wb-text:var(--embed-text,#303030)}
+.wb-panel{display:flex;flex-direction:column;min-height:0;min-width:0;overflow:hidden;background:var(--embed-bg,#fff)}
+.wb-panel.collapsed{align-self:start}
+.wb-head{display:flex;align-items:center;gap:6px;height:32px;flex-shrink:0;padding:0 6px 0 4px;background:var(--wb-head);border-bottom:1px solid var(--wb-line);color:var(--wb-muted);font-size:12px;min-width:0}
+.wb-panel.collapsed .wb-head{border-bottom-color:var(--wb-line)}
+.wb-toggle{display:inline-flex;align-items:center;gap:4px;height:26px;padding:0 4px;border-radius:6px;color:var(--wb-text);flex-shrink:0;white-space:nowrap}
+.wb-toggle:hover{background:var(--hover)}
+.wb-toggle strong{font-weight:500;font-size:12px}
+.wb-toggle:focus-visible,.wb-splitter:focus-visible{outline:2px solid var(--embed-accent,#5481a4);outline-offset:-2px}
+.wb-target{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--wb-text)}
+.wb-status{flex-shrink:0;white-space:nowrap;font-size:11px;color:var(--wb-muted)}
+.wb-status.warn{color:#a8611b}
+.wb-status.error{color:#b4372f}
+.wb-spacer{flex:1}
+.wb-head .icon-button{width:26px;height:26px}
+.wb-order{display:inline-flex;gap:0;flex-shrink:0;opacity:0}
+.wb-head:hover .wb-order,.wb-head:focus-within .wb-order{opacity:1}
+.wb-body{flex:1;min-height:0;display:flex;flex-direction:column;overflow:auto}
+.wb-body[hidden]{display:none}
+.wb-viewer .wb-body{overflow:hidden}
+.wb-viewer .wb-body>.model-canvas-layout{flex:1;min-height:0}
+.workbench .wb-body>:is(.files-dock,.source-dock,.properties-dock,.activity-dock){height:auto;max-height:none;flex:1;min-height:0;border-top:0}
+.workbench .wb-body>:is(.files-dock,.properties-dock,.activity-dock){overflow:auto}
+.workbench .wb-body>.source-dock{display:flex;flex-direction:column;overflow:hidden}
+.wb-splitter{position:relative;background:var(--wb-line);touch-action:none;z-index:1}
+.wb-splitter.rows{cursor:row-resize;height:6px;background:transparent;border-top:1px solid var(--wb-line)}
+.wb-splitter.columns{cursor:col-resize;width:6px;background:transparent;border-left:1px solid var(--wb-line)}
+.wb-splitter:hover,.wb-splitter.dragging,.wb-splitter:focus-visible{background:color-mix(in srgb,var(--wb-muted) 28%,transparent)}
+.wb-splitter[aria-disabled]{cursor:default;background:transparent}
+.file-panel{display:flex;flex-direction:column;min-height:100%}
+.file-filters{position:sticky;top:0;z-index:1;display:flex;flex-wrap:wrap;align-items:center;gap:6px;padding:6px 8px;background:var(--embed-bg,#fff);border-bottom:1px solid var(--wb-line)}
+.file-filters>button{padding:0 8px;border-radius:6px;border:1px solid var(--wb-line);font-size:12px;white-space:nowrap;color:var(--wb-muted)}
+.file-filters>button.active{background:var(--embed-active,var(--hover));color:var(--wb-text);border-color:transparent}
+.file-filters>button span{opacity:.7;margin-left:2px}
+.file-system-toggle{display:inline-flex;align-items:center;gap:4px;margin-left:auto;font-size:11px;white-space:nowrap;color:var(--wb-muted)}
+.file-group h3{display:flex;gap:6px;align-items:baseline;margin:0;padding:8px 12px 4px;font-size:11px;font-weight:500;color:var(--wb-muted)}
+.file-group h3 span{font-weight:400}
+a.artifact-name{text-decoration:none;color:inherit}
+/* Name and folder are separate flex items: the name keeps its width, the folder takes what is left and truncates first. */
+.artifact-name>span{display:flex;align-items:baseline;gap:8px;min-width:0}
+.artifact-name>span>strong{flex:0 1 auto;min-width:48px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:500}
+.artifact-name>span>small{flex:1 1 0;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:11px}
+.embedded-busy{display:flex;align-items:center;gap:6px;margin:0 0 6px;padding:4px 8px;border-radius:6px;font-size:12px;background:var(--embed-active,var(--hover));color:var(--embed-text,#303030)}
+.no-source{display:flex;flex-direction:column;align-items:flex-start;gap:8px;padding:12px;color:var(--wb-muted)}
+.no-source strong{color:var(--wb-text);font-weight:500}
+.no-source .no-source-actions{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.no-source select{max-width:100%}
+.workspace-heading>div:first-child{display:flex;align-items:center;gap:10px;min-width:0}
+.part-switcher{display:flex;align-items:center;gap:4px;min-width:0;font-size:12px;color:var(--embed-muted,var(--muted))}
+.part-switcher .part-project{min-width:0;max-width:140px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--embed-text,#303030);font-weight:500}
+.part-switcher .part-label{flex-shrink:0;margin-right:2px}
+.part-switcher .icon-button{width:26px;height:26px}
+.part-switcher .button{height:26px;padding:0 8px;font-size:12px}
+.part-switcher.confirming{flex-wrap:wrap}
+.part-switcher .part-confirm{min-width:0;color:var(--embed-text,#303030)}
+.part-switcher .part-error{min-width:0;color:var(--embed-danger,#b4372f)}
+.part-switcher select,.part-switcher input{flex:0 1 180px;min-width:0;max-width:180px;height:26px;padding:0 6px;font-size:12px;border:1px solid var(--embed-border,var(--line));border-radius:6px;background:transparent;color:var(--embed-text,#303030)}

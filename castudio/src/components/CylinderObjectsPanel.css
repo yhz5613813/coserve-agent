@@ -30,9 +30,7 @@
 .model-canvas-layout>.viewports{min-width:0;min-height:100px}
 .cylinder-object-sidebar{flex:0 0 286px;width:286px;min-width:0;min-height:0;overflow:hidden}
 .cylinder-object-sidebar[hidden]{display:none!important}
-.cylinder-objects-toggle{display:flex;align-items:center;gap:7px;border:1px solid #e5e5de;border-radius:7px;padding:7px 10px;font-size:11px;color:#77776d;background:#fff;margin-right:6px}
-.cylinder-objects-toggle:hover,.cylinder-objects-toggle.active{background:#f0f2ee;color:#425346;border-color:#dce2d8}
 @media(max-width:1100px){.cylinder-object-sidebar{flex-basis:270px;width:270px}}
-@media(max-width:700px){.cylinder-object-sidebar{position:absolute;inset:0 0 0 auto;z-index:15;width:min(286px,92%);box-shadow:-8px 0 24px #0000000d}.cylinder-objects-toggle{padding:7px 8px;font-size:10px;margin-right:2px}}
+@media(max-width:700px){.cylinder-object-sidebar{position:absolute;inset:0 0 0 auto;z-index:15;width:min(286px,92%);box-shadow:-8px 0 24px #0000000d}}
 
 @media(max-height:700px){.cylinder-objects-panel{overflow-y:auto}.cylinder-objects-scroll{flex:0 0 auto;overflow:visible}.cylinder-objects-actions{position:static}.cylinder-object-tree{max-height:200px}}

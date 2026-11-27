@@ -211,6 +211,7 @@ export class BrowserAuth {
     processOwner: object,
     private readonly secret: Buffer,
     maxAgeDays: number,
+    private readonly openAccess: boolean,
   ) {
     this.launchToken = processLaunchToken(processOwner)
     this.maxAgeMilliseconds = maxAgeDays * DAY_MILLISECONDS
@@ -226,14 +227,16 @@ export class BrowserAuth {
    * @param processOwner - root application context retaining one token across Connection reloads.
    * @param credentials - persistent credential provider for the Web profile.
    * @param maxAgeDays - positive absolute browser-cookie lifetime in days.
+   * @param openAccess - mint the browser cookie on any trusted index GET without the launch token.
    * @returns initialized authentication owner with the process owner's launch token.
    */
   static async create(
     processOwner: object,
     credentials: CredentialProvider,
     maxAgeDays: number,
+    openAccess = false,
   ): Promise<BrowserAuth> {
-    return new BrowserAuth(processOwner, await initializeSecret(credentials), maxAgeDays)
+    return new BrowserAuth(processOwner, await initializeSecret(credentials), maxAgeDays, openAccess)
   }
 
   /**
@@ -300,6 +303,22 @@ export class BrowserAuth {
       return false
     }
     if (this.isAuthenticated(req, secure)) return true
+    const audience = requestAudience(req.headers, secure)
+    if (this.openAccess && req.method === 'GET' && audience !== undefined) {
+      const issuedAt = Date.now()
+      const expiresAt = issuedAt + this.maxAgeMilliseconds
+      const value = encodeCookie({ version: COOKIE_PAYLOAD_VERSION, authority: audience, issuedAt, expiresAt }, this.secret)
+      // Reload the same document relatively, so a prefix-stripping proxy keeps its mount.
+      const leaf = url.pathname.slice(url.pathname.lastIndexOf('/') + 1)
+      res.writeHead(303, {
+        'cache-control': 'no-store',
+        'location': (leaf || './') + url.search,
+        'referrer-policy': 'no-referrer',
+        'set-cookie': sessionCookie(cookieName(audience), value, expiresAt, Math.floor(this.maxAgeMilliseconds / 1000), secure),
+      })
+      res.end()
+      return false
+    }
     this.writeUnauthorized(req, res)
     return false
   }

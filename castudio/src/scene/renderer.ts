@@ -188,6 +188,29 @@ export class CadRenderer {
     this.camera.updateProjectionMatrix(); this.controls.target.copy(center); this.controls.update();
   }
   snapshot() { this.renderer.render(this.scene, this.camera); return this.renderer.domElement.toDataURL('image/png'); }
+  /** Mesh export of the visible parts in studio coordinates (Z-up, mm) at their unexploded placement; GLB is rotated back to glTF Y-up. Edges, section and highlights are not exported. */
+  async exportModel(format: 'glb' | 'stl' | 'obj'): Promise<Blob> {
+    const root = new THREE.Group(), placement = new THREE.Matrix4();
+    for (const mesh of this.meshes) {
+      let shown = true; for (let o: THREE.Object3D | null = mesh; o; o = o.parent) shown = shown && o.visible;
+      if (!shown) continue;
+      mesh.parent?.updateWorldMatrix(true, false);
+      placement.compose(this.originals.get(mesh.uuid) ?? mesh.position, mesh.quaternion, mesh.scale).premultiply(mesh.parent?.matrixWorld ?? new THREE.Matrix4());
+      const part = new THREE.Mesh(mesh.geometry, mesh.material); part.name = mesh.name; placement.decompose(part.position, part.quaternion, part.scale); root.add(part);
+    }
+    if (!root.children.length) throw new Error('没有可见的网格可导出');
+    if (format === 'glb') {
+      const { GLTFExporter } = await import('three/addons/exporters/GLTFExporter.js'); root.rotation.x = -Math.PI / 2; root.updateMatrixWorld(true);
+      return new Blob([await new GLTFExporter().parseAsync(root, { binary: true }) as ArrayBuffer], { type: 'model/gltf-binary' });
+    }
+    root.updateMatrixWorld(true);
+    if (format === 'stl') {
+      const { STLExporter } = await import('three/addons/exporters/STLExporter.js'), view = new STLExporter().parse(root, { binary: true });
+      return new Blob([view.buffer.slice(view.byteOffset, view.byteOffset + view.byteLength) as ArrayBuffer], { type: 'model/stl' });
+    }
+    const { OBJExporter } = await import('three/addons/exporters/OBJExporter.js');
+    return new Blob([new OBJExporter().parse(root)], { type: 'text/plain' });
+  }
   cameraState(): NonNullable<ViewportState['camera']> {
     return { position: [this.camera.position.x, this.camera.position.y, this.camera.position.z], target: [this.controls.target.x, this.controls.target.y, this.controls.target.z], projection: this.camera instanceof THREE.OrthographicCamera ? 'orthographic' : 'perspective' };
   }

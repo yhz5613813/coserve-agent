@@ -3,17 +3,24 @@ import type { SignInAttemptId } from '@deepseek-ai/dsh-deepseek-account/types'
 
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { app, BrowserWindow, ipcMain, type BrowserWindowConstructorOptions, type IpcMainInvokeEvent } from 'electron'
+import { app, BrowserWindow, dialog, ipcMain, type BrowserWindowConstructorOptions, type IpcMainInvokeEvent } from 'electron'
 import type { DesktopLocale } from './locale.ts'
-import { WELCOME_IPC, type WelcomeOperations } from './welcome-api.ts'
+import { WELCOME_IPC, type WelcomeFolderResult, type WelcomeMode, type WelcomeOperations } from './welcome-api.ts'
+
+/** Host-side welcome operations; the welcome window owns the native folder picker and hands its selection to the Host. */
+export type WelcomeHostOperations = Omit<WelcomeOperations, 'chooseProjectsFolder'> & {
+  /** @param folder - path returned by the native picker. @returns `changed`, or `invalid`/`failed` keeping the previous folder. */
+  saveProjectsFolder(folder: string): Promise<WelcomeFolderResult>
+}
 
 /**
  * Resolve the fixed-size welcome window's native material and controls.
  * @param platform - operating system hosting Electron.
  * @param locale - shell-owned localized copy.
- * @returns sandboxed window options with a locale-only preload.
+ * @param mode - first-launch welcome or the one-time model API setup.
+ * @returns sandboxed window options with a locale-and-mode-only preload.
  */
-export function welcomeWindowOptions(platform: NodeJS.Platform, locale: DesktopLocale): BrowserWindowConstructorOptions {
+export function welcomeWindowOptions(platform: NodeJS.Platform, locale: DesktopLocale, mode: WelcomeMode = 'welcome'): BrowserWindowConstructorOptions {
   return {
     width: 600,
     height: 700,
@@ -23,7 +30,7 @@ export function welcomeWindowOptions(platform: NodeJS.Platform, locale: DesktopL
     maximizable: false,
     fullscreenable: false,
     show: false,
-    title: locale.messages.welcomeTitle,
+    title: mode === 'setup' ? locale.messages.welcomeSetupTitle : locale.messages.welcomeTitle,
     backgroundColor: platform === 'darwin' || platform === 'win32' ? '#00000000' : '#FFFFFF',
     ...(platform === 'darwin' ? {
       titleBarStyle: 'hidden',
@@ -38,7 +45,7 @@ export function welcomeWindowOptions(platform: NodeJS.Platform, locale: DesktopL
     } as const : {}),
     webPreferences: {
       preload: fileURLToPath(new URL('./preload-welcome.cjs', import.meta.url)),
-      additionalArguments: [`--dsh-welcome-locale=${locale.id}`],
+      additionalArguments: [`--dsh-welcome-locale=${locale.id}`, ...(mode === 'setup' ? ['--dsh-welcome-mode=setup'] : [])],
       nodeIntegration: false,
       contextIsolation: true,
       sandbox: true,
@@ -53,12 +60,13 @@ let disposeActiveHandlers: (() => void) | undefined
  * Open the process's sole welcome window with desktop-owned operations.
  * Replaces IPC ownership immediately; the caller closes the previous native window.
  * @param locale - shell-owned localized copy.
- * @param operations - credential write and this-launch-only skip actions.
+ * @param operations - credential write, project folder, and skip actions.
+ * @param parent - workspace window; when present the window opens as its modal in `setup` mode.
  * @returns the visible window; a failed load destroys it before rejecting.
  */
-export async function openWelcomeWindow(locale: DesktopLocale, operations: WelcomeOperations): Promise<BrowserWindow> {
-  const options = welcomeWindowOptions(process.platform, locale)
-  const window = new BrowserWindow(options)
+export async function openWelcomeWindow(locale: DesktopLocale, operations: WelcomeHostOperations, parent?: BrowserWindow): Promise<BrowserWindow> {
+  const options = welcomeWindowOptions(process.platform, locale, parent === undefined ? 'welcome' : 'setup')
+  const window = new BrowserWindow(parent === undefined ? options : { ...options, parent, modal: true })
   disposeActiveHandlers?.()
   let active = true
   const disposeHandlers = (): void => {
@@ -67,6 +75,7 @@ export async function openWelcomeWindow(locale: DesktopLocale, operations: Welco
     for (const channel of [
       WELCOME_IPC.analyticsEnabled, WELCOME_IPC.analytics, WELCOME_IPC.takeNotice, WELCOME_IPC.saveApiKey,
       WELCOME_IPC.skip, WELCOME_IPC.start, WELCOME_IPC.cancel, WELCOME_IPC.copyLink,
+      WELCOME_IPC.projectsFolder, WELCOME_IPC.chooseProjectsFolder,
     ]) {
       ipcMain.removeHandler(channel)
     }
@@ -93,10 +102,21 @@ export async function openWelcomeWindow(locale: DesktopLocale, operations: Welco
     } else throw new Error('desktop welcome: invalid analytics event')
   })
   ipcMain.handle(WELCOME_IPC.takeNotice, async (event) => { assertSender(event); return operations.takeNotice() })
-  ipcMain.handle(WELCOME_IPC.saveApiKey, async (event, value: unknown) => {
+  ipcMain.handle(WELCOME_IPC.saveApiKey, async (event, value: unknown, baseURL: unknown) => {
     assertSender(event)
     if (typeof value !== 'string' || !/^[\x21-\x7e]+$/.test(value)) return { ok: false }
-    return operations.saveApiKey(value)
+    if (baseURL !== undefined && (typeof baseURL !== 'string' || !/^https?:\/\/[\x21-\x7e]+$/.test(baseURL))) return { ok: false }
+    return operations.saveApiKey(value, baseURL)
+  })
+  ipcMain.handle(WELCOME_IPC.projectsFolder, async (event) => { assertSender(event); return operations.projectsFolder() })
+  ipcMain.handle(WELCOME_IPC.chooseProjectsFolder, async (event): Promise<WelcomeFolderResult> => {
+    assertSender(event)
+    const current = await operations.projectsFolder()
+    if (current === undefined) throw new Error('desktop welcome: the project folder is not selectable in this build')
+    const picked = await dialog.showOpenDialog(window, { defaultPath: current, properties: ['openDirectory', 'createDirectory'] })
+    const folder = picked.filePaths[0]
+    if (picked.canceled || folder === undefined) return { status: 'cancelled' }
+    return operations.saveProjectsFolder(folder)
   })
   ipcMain.handle(WELCOME_IPC.skip, async (event) => {
     assertSender(event)

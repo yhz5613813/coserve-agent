@@ -2496,7 +2496,7 @@ todo_write 是会话所有的状态；UI 将最新的 todo/write 事件渲染为
 
 ### `cad_workbench`
 
-查看并操作用户在 CAStudio 中打开的实时 CAD 工作台。操作包括：state（读取视口状态）、snapshot（保存视口 PNG）、fit（从 iso/top/front/right 框选模型）、select 与 select_face（按 id 或精确名称选择零件，或选择 CAD 面）、visible（显示或隐藏零件）、options（edges、grid、ortho、section、explode、选择模式）以及 workspace（切换 model/parametric/structural/thermal 标签）。它只查看并操作视图；几何、颜色和材质编辑通过 castudio 技能中描述的参数化代码 API 进行。多个工作台打开时，传入 "project" 并填写 CAStudio 上下文中的工作台 id。
+查看并操作用户在 CAStudio 中打开的实时 CAD 工作台。操作包括：state（读取视口状态）、snapshot（保存视口 PNG）、fit（从 iso/top/front/right 框选模型）、select 与 select_face（按 id 或精确名称选择零件，或选择 CAD 面）、visible（显示或隐藏零件）、options（edges、grid、ortho、section、explode、选择模式）workspace（切换 model/parametric/structural/thermal 标签）、open（在视口中打开模型文件，可同时切换到另一个零件）以及 panel（展开或折叠 viewer、editor、files 或 properties 面板）。一个 CAD 项目包含多个零件：零件 "default" 是 workspace 根目录，其余零件位于 parts/<slug>/。传入 "partSlug"（取自 CAStudio 上下文中的 "Project / Part" 行），命令仅在视口显示该零件时执行；视口显示其他零件时，服务会拒绝该命令。每个结果都会指明视口当前显示的零件。它只查看并操作视图；几何、颜色和材质编辑通过 castudio 技能中描述的参数化代码 API 进行。多个工作台打开时，传入 "project" 并填写 CAStudio 上下文中的工作台 id。
 
 ```json
 {
@@ -2513,7 +2513,9 @@ todo_write 是会话所有的状态；UI 将最新的 todo/write 事件渲染为
         "select_face",
         "visible",
         "options",
-        "workspace"
+        "workspace",
+        "open",
+        "panel"
       ]
     },
     "project": {
@@ -2530,9 +2532,35 @@ todo_write 是会话所有的状态；UI 将最新的 todo/write 事件渲染为
         "right"
       ]
     },
+    "partSlug": {
+      "type": "string",
+      "description": "CAD part slug: \"default\" or a lowercase hyphenated slug of a folder under parts/. open: the part to switch to. Any other command action: the part you expect the viewer to show; the command is refused when the viewer shows another part. state ignores it and reports the part shown."
+    },
+    "path": {
+      "type": "string",
+      "description": "open only: model file path relative to the target part's workspace (the workspace root for part \"default\", parts/<slug>/ otherwise)."
+    },
+    "panel": {
+      "type": "string",
+      "description": "panel action only: the workbench panel to expand or collapse.",
+      "enum": [
+        "viewer",
+        "editor",
+        "files",
+        "properties"
+      ]
+    },
+    "state": {
+      "type": "string",
+      "description": "panel action only: expand or collapse the panel.",
+      "enum": [
+        "expand",
+        "collapse"
+      ]
+    },
     "part": {
       "type": "string",
-      "description": "select, select_face, and visible: a part id or an exact part name from the reported state."
+      "description": "select, select_face, and visible: a mesh (viewport object) id or an exact mesh name from the reported state. It is not a CAD part; use partSlug for that."
     },
     "face": {
       "type": "integer",

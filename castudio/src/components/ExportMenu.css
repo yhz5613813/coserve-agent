@@ -1,0 +1,24 @@
+/* Content of the export popover; the surface itself is the shared .ui-popover. */
+.export-body{padding:2px}
+.export-howto{margin:2px 4px 4px}
+.export-howto>p{margin:0 0 4px;font-size:11px;line-height:1.5;color:var(--embed-muted,var(--muted,#80807b))}
+.export-howto code{overflow-wrap:anywhere;color:var(--embed-text,#303030)}
+.export-row{display:flex;align-items:center;gap:4px;padding:4px;border-radius:5px}
+.export-row:hover{background:var(--embed-hover,rgba(127,127,127,.1))}
+.export-row>span{flex:1;min-width:0;display:flex;flex-direction:column;gap:1px}
+.export-row strong{font-weight:500}
+.export-row small,.export-catia small{color:var(--embed-muted,var(--muted,#80807b));font-size:11px;line-height:1.3}
+.export-row .text-button{font-size:12px;padding:0 6px;height:24px;white-space:nowrap}
+.export-row .text-button:disabled{opacity:.4;cursor:default}
+.export-note{margin:4px;color:var(--embed-muted,var(--muted,#80807b));font-size:11px;line-height:1.4}
+.export-catia{margin:6px 4px 2px;padding-top:6px;border-top:1px solid var(--embed-border,var(--line,#e7e7e5))}
+.export-catia label{display:flex;align-items:center;gap:8px;color:var(--embed-muted,var(--muted,#80807b))}
+.export-catia input{flex:1;min-width:0;height:24px;padding:0 6px;font-size:12px;border:1px solid var(--embed-border,var(--line,#e7e7e5));border-radius:5px;background:transparent;color:var(--embed-text,#303030)}
+.export-catia input[aria-invalid=true]{border-color:#d4574c}
+.export-error{display:block;color:#d4574c!important}
+.export-message{display:flex;gap:8px;align-items:baseline;margin:6px 4px 2px;padding:6px;border-radius:5px;background:var(--embed-active,rgba(127,127,127,.1));overflow-wrap:anywhere}
+.export-message.error{color:#d4574c}
+.export-message a{flex-shrink:0;color:inherit;text-decoration:underline}
+.file-chip{display:inline-block;padding:0 6px;border-radius:9px;font-size:11px;line-height:18px;white-space:nowrap;border:1px solid var(--embed-border,var(--line,#e7e7e5));color:var(--embed-muted,var(--muted,#80807b))}
+.file-chip.done{color:var(--embed-text,#303030);background:var(--embed-active,rgba(127,127,127,.1))}
+.file-convert-error{flex-basis:100%;margin:0 0 4px 27px;font-size:11px;color:#d4574c;overflow-wrap:anywhere}

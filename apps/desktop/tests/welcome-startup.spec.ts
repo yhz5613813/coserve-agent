@@ -7,7 +7,7 @@ import { afterEach, expect, it, vi } from 'vitest'
 import type { BrowserWindowConstructorOptions } from 'electron'
 import type { DesktopLocale } from '../src/locale.ts'
 import type { AccountView } from '@deepseek-ai/dsh-deepseek-account/types'
-import type { WelcomeOperations } from '../src/welcome-api.ts'
+import type { WelcomeHostOperations } from '../src/welcome-window.ts'
 import { DESKTOP_IPC } from '../src/ipc.ts'
 
 const state = vi.hoisted(() => ({
@@ -39,7 +39,8 @@ const state = vi.hoisted(() => ({
   contents: undefined as { mainFrame: { url: string } } | undefined,
   windowOptions: undefined as BrowserWindowConstructorOptions | undefined,
   menu: vi.fn(),
-  operations: undefined as WelcomeOperations | undefined,
+  operations: undefined as WelcomeHostOperations | undefined,
+  setupParent: undefined as unknown,
   nativeTheme: { themeSource: 'system', shouldUseDarkColors: false },
 }))
 
@@ -157,8 +158,10 @@ vi.mock('../src/update-coordinator.ts', () => ({ DesktopUpdateCoordinator: class
   dispose = vi.fn()
 } }))
 vi.mock('../src/welcome-window.ts', () => ({
-  openWelcomeWindow: async (locale: DesktopLocale, operations: WelcomeOperations) => {
+  openWelcomeWindow: async (locale: DesktopLocale, operations: WelcomeHostOperations, parent?: unknown) => {
     state.welcomeLocale = locale
+    state.setupParent = parent
+    if (parent !== undefined) return { once: vi.fn(), close: vi.fn(), isDestroyed: () => false }
     state.operations = operations
     await state.beforeWelcome()
     return { once: vi.fn(), close: state.closeWelcome, isDestroyed: () => false,
@@ -180,6 +183,7 @@ it.each([false, true])('starts welcome onboarding without carrying update focus 
   state.preference = 'zh'
   state.hasApiKey = false
   state.operations = undefined
+  state.setupParent = undefined
   state.accountState.mockResolvedValue({ status: 'signed-out', attempt: null, links: { usageUrl: '', topUpUrl: '' } })
   if (updated) vi.stubGlobal('process', { ...process, platform: 'win32', argv: ['desktop', '--updated'] })
   vi.useFakeTimers()
@@ -237,6 +241,8 @@ it.each([false, true])('starts welcome onboarding without carrying update focus 
   await expect(state.operations!.copySignInLink(attemptId)).rejects.toThrow('login link is unavailable')
   expect(state.copy).toHaveBeenCalledTimes(2)
   await state.operations!.skip()
+  // The first dismissal of welcome opens the one-time model API setup over the workspace.
+  await vi.waitFor(() => { expect(state.setupParent).toBeDefined() })
   expect(state.loadWorkspace).not.toHaveBeenCalled()
   expect(state.showWorkspace).toHaveBeenCalledOnce()
   expect(state.moveTopWorkspace).not.toHaveBeenCalled()

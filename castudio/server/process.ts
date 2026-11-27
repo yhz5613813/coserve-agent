@@ -6,7 +6,8 @@ export function runProcess(executable: string, args: string[], options: { cwd: s
     if (options.signal?.aborted) { reject(new Error('执行已取消')); return; }
     const env: NodeJS.ProcessEnv = {};
     for (const [key, value] of Object.entries(process.env)) if (/^(path|systemroot|windir|comspec|pathext|temp|tmp|home|userprofile|lang|lc_.*|processor_architecture|processor_architew6432|ld_library_path|dyld_library_path|cadflow_core_library|cuda_path|thermal_cuda_backend|coserve_thermoforge_root)$/i.test(key)) env[key] = value;
-    Object.assign(env, { PYTHONUTF8: '1', PYTHONIOENCODING: 'utf-8', PYTHONUNBUFFERED: '1' });
+    // Workers talk to 127.0.0.1 services (CAStudio, marimo); NO_PROXY keeps Python clients off a system/registry proxy.
+    Object.assign(env, { PYTHONUTF8: '1', PYTHONIOENCODING: 'utf-8', PYTHONUNBUFFERED: '1', NO_PROXY: '127.0.0.1,localhost,::1', no_proxy: '127.0.0.1,localhost,::1' });
     const child = spawn(executable, args, { cwd: process.platform === 'win32' ? path.toNamespacedPath(options.cwd) : options.cwd, env, shell: false, windowsHide: true, detached: process.platform !== 'win32', stdio: ['ignore', 'pipe', 'pipe'] });
     let finished = false, timedOut = false, stopping = false;
     const stop = () => {

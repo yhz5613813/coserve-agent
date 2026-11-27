@@ -4,10 +4,10 @@ CAD 内核：官方 CadFlow 0.2.0 Windows wheel（resources/cadflow-wheel，MIT�
 运行/编辑器层：castudio_runtime（resources/castudio-runtime，Apache-2.0，改编自 PhySpace/SimpleCADAPI 2.2.6.post2，提交 9e749ed706aa3e40cbf78b2dcfff5717737a0c2f；完整许可证与归属见该目录 LICENSE / THIRD_PARTY.txt）。
 
 使用流程
-1. 打开原 CAStudio 项目，进入“参数化建模”工作区。
-2. 首次使用可创建参数化圆柱；已有项目不会覆盖原 CadFlow 源码或结果。
+1. 打开原 CAStudio 项目，进入“参数”工作区。
+2. 首次使用可从模板创建参数化程序：圆柱壳（parametric/cylinder.py）、平板（parametric/plate.py，长、宽、厚与可选孔阵列）或空白程序（parametric/blank.py，长、宽、高参数与一个方块 `body`，供 Agent 改写为任意几何；只经 API 安装，面板不显示卡片）。所选模板和入口文件记录在 parametric/program.json；没有该记录的旧项目按圆柱壳处理。已有项目不会覆盖原 CadFlow 源码或结果。
 3. 打开编辑器。左侧编辑建模步骤与参数，中间选择实体、面、边、顶点，右侧检查 CAD 属性与标签。
-4. 点击“导出 CAD 并校验仿真边界”。发布前会刷新待保存的编辑，并核对源码和参数已落盘。发布过程关闭编辑内核以避免缓存和源文件的并发写入；可在发布完成后重新打开。
+4. 点击“导出 CAD 并校验仿真边界”。发布前会刷新待保存的编辑，并核对源码和参数已落盘。发布不会关闭编辑器：服务器先冻结源码副本（exports/<运行编号>/source），构建只读该副本，并在构建后核对副本哈希；若编辑器在构建期间又保存了修改，发布记录标注 sourceChangedDuringBuild。平板与空白程序只把 notebook 的 `body` 导出为 STEP、STL、场景包与 <模板>.build.json（plate.build.json、blank.build.json），不做仿真边界检查，也不能送入结构仿真。
 5. 检查三组边界的面积和实体等价性；通过后点击“送入现有结构仿真”。
 6. 原结构分析界面中的静力、几何非线性、网格验证、云图和 Word 下载继续使用原流程。
 

@@ -9,7 +9,11 @@ import type {} from '@deepseek-ai/dsh-tools'
 import type {} from '@deepseek-ai/dsh-agent-preset-registry'
 import { SessionId } from '@deepseek-ai/dsh-session'
 import { ReasoningEffortId } from '@deepseek-ai/dsh-llm'
+import type {} from '@deepseek-ai/dsh-session-projection'
 import { OptimizationDriver, OptimizationHttpError, parseProposal } from './optimization-driver.ts'
+import { cadPartProjectionDefinition } from './part-projection.ts'
+
+export type * from './types.ts'
 
 declare module '@deepseek-ai/dsh-jobs' {
   interface JobKindMap { 'cad-design': 'cad-design' }
@@ -39,7 +43,8 @@ export interface Config {
 /** Validated defaults keep work bounded while allowing local configuration. */
 export const Config: z<Config> = z.object({
   optimizationEnabled: z.boolean().default(true),
-  url: z.string().default('http://127.0.0.1:4317'),
+  // The desktop app may move the service off the conventional port and publishes its origin here.
+  url: z.string().default(process.env['COSERVE_CASTUDIO_URL'] ?? 'http://127.0.0.1:4317'),
   pollIntervalMs: z.number().min(250).max(10000).default(2000),
   requestTimeoutMs: z.number().min(1000).max(60000).default(10000),
   proposalTimeoutMs: z.number().min(10000).max(1800000).default(360000),
@@ -52,6 +57,9 @@ export const Config: z<Config> = z.object({
  * @param config - validated deployment settings.
  */
 export async function apply(ctx: Context, config: Config): Promise<void> {
+  // Session rows read the part of each Session from its summary; a Host without the registry shows none.
+  const partProjection = ctx.inject(['sessionProjections'], async (ctx) => { await ctx.sessionProjections.register(cadPartProjectionDefinition) })
+  if (ctx.get('sessionProjections') !== undefined) await partProjection
   if (!config.optimizationEnabled) return
   const origin = new URL(config.url)
   if (origin.protocol !== 'http:' || !['127.0.0.1', 'localhost', '[::1]'].includes(origin.hostname) || origin.username || origin.password || origin.pathname !== '/' || origin.search || origin.hash) throw new Error('CAStudio optimization requires a plain loopback HTTP origin')

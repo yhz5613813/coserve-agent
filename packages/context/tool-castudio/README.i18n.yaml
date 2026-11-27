@@ -24,11 +24,11 @@
   en: 86c21d9de106fcb1
   zh: 09f760e3dba2dbe6
 /deepseek-ai-dsh-tool-castudio/use-this-package/what-each-call-does:
-  en: 0394426f2def8362
-  zh: 6f9d978f5e3ed3a1
+  en: 67ae1c0266a07616
+  zh: 4a5076e7a4b2d140
 /deepseek-ai-dsh-tool-castudio/use-this-package/errors-the-model-sees:
-  en: c8ef547de1007bfb
-  zh: d1dad2ac3618d02a
+  en: 5e1440154ee31c92
+  zh: 1b1ae94a477d039b
 /deepseek-ai-dsh-tool-castudio/understand-the-implementation:
   en: 8d94a7381bca3fa9
   zh: 320d140c93c39978
@@ -42,8 +42,8 @@
   en: 50432ff90c974616
   zh: 7f8779b00813982a
 /deepseek-ai-dsh-tool-castudio/understand-the-implementation/call-mechanics:
-  en: f4785becfdc19dda
-  zh: 16966a57816578c5
+  en: 19a8dfad28a02230
+  zh: 376b23250020d941
 /deepseek-ai-dsh-tool-castudio/further-exploration:
   en: dd7597861ba90f6b
   zh: 6f2166c369d12e60
@@ -54,8 +54,8 @@
   en: e4c7376d4f29dbd5
   zh: 6b7a9eaf69c9ea53
 /deepseek-ai-dsh-tool-castudio/model-experience/tool-schema/what-the-model-sees:
-  en: 58ba6562d3cde3df
-  zh: 66525813ac059683
+  en: cd11ed1886b79eaa
+  zh: df1c059ab241ce34
 /deepseek-ai-dsh-tool-castudio/model-experience/tool-schema/token-effect:
   en: c132dd95704d633e
   zh: de232eb16a68ab96
@@ -66,8 +66,8 @@
   en: 9717b983b6a857e3
   zh: 611a2dadf7c0c706
 /deepseek-ai-dsh-tool-castudio/model-experience/tool-call-history-and-result/what-the-model-sees:
-  en: 3e0e1e879612109d
-  zh: a2dd14bbc17b6751
+  en: 32d123967bb74fef
+  zh: 5b47f87926567dd9
 /deepseek-ai-dsh-tool-castudio/model-experience/tool-call-history-and-result/token-effect:
   en: 7a871085b69ee909
   zh: df4aaeb1d559ab2b

@@ -61,12 +61,16 @@ One tool, `cad_workbench`, with an `action` discriminator:
 - `select` picks a part by id or exact name; `select_face` picks one CAD face on a part; `visible` shows or hides a part.
 - `options` merges any subset of `edges`, `grid`, `ortho`, `section` (0–100), `explode` (0–180), and `mode` (`component`/`face`).
 - `workspace` switches the `model`, `parametric`, `structural`, or `thermal` tab.
+- `open` opens the model file `path`, relative to the target part's workspace, in the viewer; with `partSlug` it first switches the viewer to that part.
+- `panel` expands or collapses the `viewer`, `editor`, `files`, or `properties` panel.
 
-When several workbenches are connected the call must name one through `project`; with exactly one connected it is the default, and with none the call fails with instructions to ask the user to open the CAD workbench tab. Part arguments resolve against the freshly reported mesh list: an exact id wins, then an exact name; ambiguous or unknown names fail with the candidate list.
+When several workbenches are connected the call must name one through `project`; with exactly one connected it is the default, and with none the call fails with instructions to ask the user to open the CAD workbench tab. The `part` argument is a mesh (viewport object) id or exact name, resolved against the freshly reported mesh list: an exact id wins, then an exact name; ambiguous or unknown names fail with the candidate list.
+
+A CAD project holds parts: part `default` is the workspace root and every other part lives in `parts/<slug>/`. Every action accepts an optional `partSlug`, sent as the command's `part`: on `open` it is the part to switch to, on every other command it is the part the caller expects the viewer to show, and the service refuses the command with HTTP 409 when the viewer shows another part. `state` reads whatever part is shown. Every result names the part the viewer shows, taken from the returned state (`default` when the page reports none).
 
 ### Errors the model sees
 
-Service unreachable, non-OK listings, malformed payloads, an unresponsive workbench, rejected commands (the service's own error text is surfaced), ambiguous part names, and missing cross-field arguments all fail the call with a `cad_workbench:`-prefixed message so the model can correct its next attempt.
+Service unreachable, non-OK listings, malformed payloads, an unresponsive workbench, rejected commands (the service's own error text is surfaced), ambiguous mesh names, and missing cross-field arguments all fail the call with a `cad_workbench:`-prefixed message so the model can correct its next attempt. A 409 on a command that named `partSlug` additionally tells the model to call `open` with that `partSlug` or read the shown part with `state`.
 
 -----
 
@@ -97,7 +101,7 @@ The plugin is a function/namespace plugin: it exports `name` / `inject` / `Confi
 
 ### Call mechanics
 
-`execute` validates the per-action field set by hand (the parameter root is an open object, so schema alone cannot reject fields belonging to other actions), lists connected workbenches, resolves the target project, resolves `part` to a mesh id against a fresh state read when the action needs one, POSTs the mapped `ViewportCommand`, and returns a bounded canonical value: project identity, echoed action, the projected viewport state (parts capped at 200 rows plus totals), and the snapshot block when present.
+`execute` validates the per-action field set by hand (the parameter root is an open object, so schema alone cannot reject fields belonging to other actions), lists connected workbenches, resolves the target project, resolves `part` to a mesh id against a fresh state read when the action needs one, POSTs the mapped `ViewportCommand` with `partSlug` as its `part`, and returns a bounded canonical value: project identity, the part the viewer shows, echoed action, the projected viewport state (parts capped at 200 rows plus totals), and the snapshot block when present.
 
 </details>
 
@@ -122,7 +126,7 @@ Read these pages when the package-level contract is not enough. They move from t
 
 #### What the model sees
 
-The model sees the generated [`cad_workbench` schema](../../../docs/tool-catalog.md#deepseek-aidsh-tool-castudio): a required `action` enum (`state`, `snapshot`, `fit`, `select`, `select_face`, `visible`, `options`, `workspace`) plus optional `project`, `view`, `part`, `face`, `visible`, `options`, and `workspace` fields with per-action descriptions. The description states the workbench-inspection purpose and the `project` selection rule.
+The model sees the generated [`cad_workbench` schema](../../../docs/tool-catalog.md#deepseek-aidsh-tool-castudio): a required `action` enum (`state`, `snapshot`, `fit`, `select`, `select_face`, `visible`, `options`, `workspace`, `open`, `panel`) plus optional `project`, `partSlug`, `view`, `path`, `panel`, `state`, `part` (a mesh name or id), `face`, `visible`, `options`, and `workspace` fields with per-action descriptions. The description states the workbench-inspection purpose, the part layout (`default` is the workspace root, others live in `parts/<slug>/`), the `partSlug` rule, and the `project` selection rule.
 
 #### Token effect
 
@@ -136,7 +140,7 @@ Prefix-stable while the definition and visibility are unchanged. Plugin lifecycl
 
 #### What the model sees
 
-Each call renders one text result headed `CAD workbench "<name>" (id <id>)`. `state` returns the tab, model subject and load status, part totals with a 200-row listing cap, selection, display options, and camera; command actions return `… applied.` plus the same state block when the service reports one; `snapshot` returns the absolute PNG path, dimensions, byte count, and an instruction to open it with `read_image`. Failures render as `Error: cad_workbench: …` with correction guidance (open the workbench tab, pass `project`, use a part id).
+Each call renders one text result headed `CAD workbench "<name>" (id <id>), part "<part name>" (<slug>)`. `state` returns the tab, model subject and load status, mesh totals with a 200-row listing cap, selection, display options, and camera; command actions return `… applied.` plus the same state block when the service reports one; `snapshot` returns the absolute PNG path, dimensions, byte count, and an instruction to open it with `read_image`. Failures render as `Error: cad_workbench: …` with correction guidance (open the workbench tab, pass `project`, use a part id).
 
 #### Token effect
 

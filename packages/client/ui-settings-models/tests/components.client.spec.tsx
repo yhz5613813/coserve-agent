@@ -11,7 +11,7 @@ import type {
 } from '@deepseek-ai/dsh-api-remotes/client'
 import type { JsonValue } from '@deepseek-ai/dsh-util-values'
 import {
-  ModelsSection, needsSetup, providerCopy, providerTargetLabel, removeProviderProfile,
+  ModelsSection, awaitsKey, providerCopy, providerTargetLabel, removeProviderProfile,
 } from '../src/client/ModelsSection.tsx'
 import type { ModelsSectionInjected, ModelsSectionProps } from '../src/client/ModelsSection.tsx'
 import { ProviderEditor, pathOps } from '../src/client/ProviderEditor.tsx'
@@ -221,8 +221,8 @@ function scriptedFace(overrides: {
       describe: vi.fn((refs: string[]): Promise<RemoteResult<Record<string, CredentialInfo>>> =>
         Promise.resolve(remoteOk(
           Object.fromEntries(refs.map(ref => [ref, {
-            configured: ref === 'OPENAI_API_KEY',
-            ...ref === 'OPENAI_API_KEY' ? { source: 'file' } : {},
+            configured: ref === 'OPENAI_API_KEY' || ref === 'DEEPSEEK_API_KEY',
+            ...ref === 'OPENAI_API_KEY' || ref === 'DEEPSEEK_API_KEY' ? { source: 'file' } : {},
             writable: true,
           }])),
         ))),
@@ -338,7 +338,7 @@ async function mountSection(overrides: Parameters<typeof scriptedFace>[0] = {}) 
 
 /**
  * Mount for a user who cannot reach any provider yet: no credential is stored
- * anywhere, so the whole-section CoServe AI route owns the first-run setup card.
+ * anywhere, so the whole-section CoServe AI route is offered by the add card.
  */
 async function mountFirstRun(overrides: Parameters<typeof scriptedFace>[0] = {}) {
   const scripted = scriptedFace(overrides)
@@ -372,7 +372,7 @@ describe('ModelsSection', () => {
     expect(row.queryByText(en.keyFallbackMissing.replace('{hint}', 'OPENAI_API_KEY'))).toBeNull()
   })
 
-  it('waits for the current snapshot when a setup surface remounts during refresh', async () => {
+  it('waits for the current snapshot when the page remounts during refresh', async () => {
     const { view, controller, face, mirror, mutate } = await mountFirstRun()
     view.unmount()
     const before = controller.store.getSnapshot().namespaces.get('llm-deepseek')!
@@ -401,8 +401,9 @@ describe('ModelsSection', () => {
       expect(screen.queryByLabelText(en.keyInput)).toBeNull()
       expect(screen.queryByRole('button', { name: en.add })).toBeNull()
     } finally {
-      await act(async () => { read.resolve(remoteOk({})); await refreshing })
+      await act(async () => { read.resolve(remoteOk({ DEEPSEEK_API_KEY: { configured: false, writable: true } })); await refreshing })
     }
+    fireEvent.click(await screen.findByRole('button', { name: en.add }))
     await screen.findByLabelText(en.keyInput)
     fireEvent.click(screen.getByText(en.customized))
     const url = screen.getByLabelText<HTMLInputElement>(en.baseUrl)
@@ -415,8 +416,9 @@ describe('ModelsSection', () => {
     await screen.findByRole('status')
   })
 
-  it('waits for the current snapshot before remounting setup after a failed page load', async () => {
+  it('waits for the current snapshot before remounting the add draft after a failed page load', async () => {
     const { controller, face, mirror, mutate } = await mountFirstRun()
+    fireEvent.click(screen.getByRole('button', { name: en.add }))
     const oldKey = screen.getByLabelText<HTMLInputElement>(en.keyInput)
     fireEvent.change(oldKey, { target: { value: 'sk-discarded-on-error' } })
     face.llm.listProviders.mockResolvedValueOnce(remoteFail('directory unavailable', 'gateway/internal'))
@@ -464,8 +466,9 @@ describe('ModelsSection', () => {
     await screen.findByRole('status')
   })
 
-  it('preserves a mounted setup draft while its current refresh is pending', async () => {
+  it('preserves a mounted add draft while its current refresh is pending', async () => {
     const { controller, face } = await mountFirstRun()
+    fireEvent.click(screen.getByRole('button', { name: en.add }))
     const key = screen.getByLabelText<HTMLInputElement>(en.keyInput)
     fireEvent.change(key, { target: { value: 'sk-unsaved-setup-draft' } })
     const read = Promise.withResolvers<RemoteResult<Record<string, CredentialInfo>>>()
@@ -642,7 +645,7 @@ describe('ModelsSection', () => {
     expect(document.body.textContent).toBe('')
   })
 
-  it('shows a configuration diagnostic inside the first-run setup card', async () => {
+  it('keeps an unkeyed provider with a configuration diagnostic listed as a row', async () => {
     const scripted = scriptedFace()
     const failure = 'The provider configuration needs repair'
     scripted.face.llm.listProviders.mockResolvedValue(remoteOk([
@@ -658,23 +661,26 @@ describe('ModelsSection', () => {
 
     const card = screen.getByRole('listitem')
     expect(within(card).getByRole('alert').textContent).toBe(failure)
+    expect(within(card).queryByLabelText(en.keyInput)).toBeNull()
+    fireEvent.click(within(card).getByRole('button', { name: deepSeekCopy(en.editProvider) }))
     expect(within(card).getByLabelText(en.keyInput)).toBeTruthy()
-    expect(within(card).queryByRole('button', { name: deepSeekCopy(en.editProvider) })).toBeNull()
   })
 
   it('dispatches the provider-card seat per rendered row, keyed by the owning namespace', async () => {
     const { renderSlot } = await mountSection()
     const cards = cardSeatCalls(renderSlot)
     expect(cards).toContainEqual(['openai', true, true, 'llm-pi-ai'])
-    expect(cards).toContainEqual(['deepseek-official', true, false, 'llm-deepseek'])
+    expect(cards).toContainEqual(['deepseek-official', true, true, 'llm-deepseek'])
     // The footer seat renders once below the rows and the add controls.
     expect(renderSlot.mock.calls.filter(call => call[0] === 'settings.models.footer')).toEqual([
       ['settings.models.footer', {}],
     ])
   })
 
-  it('dispatches the provider-card seat inside the first-run setup card', async () => {
+  it('dispatches the provider-card seat on the add draft of an unkeyed whole-section provider', async () => {
     const { renderSlot } = await mountFirstRun()
+    expect(cardSeatCalls(renderSlot).some(([provider]) => provider === 'deepseek-official')).toBe(false)
+    fireEvent.click(screen.getByRole('button', { name: en.add }))
     expect(cardSeatCalls(renderSlot)).toContainEqual(['deepseek-official', true, false, 'llm-deepseek'])
   })
 
@@ -689,7 +695,7 @@ describe('ModelsSection', () => {
     const scripted = scriptedFace()
     scripted.face.credentials.describe.mockImplementation((refs: string[]) => Promise.resolve(remoteOk(
       Object.fromEntries(refs.map(ref => [ref, {
-        configured: ref === 'OPENAI_API_KEY' || ref === 'ANTHROPIC_API_KEY',
+        configured: ref === 'OPENAI_API_KEY' || ref === 'ANTHROPIC_API_KEY' || ref === 'DEEPSEEK_API_KEY',
         writable: true,
       }])),
     )))
@@ -715,32 +721,33 @@ describe('ModelsSection', () => {
     expect(screen.getByLabelText(en.keyInput)).toBeTruthy()
     expect(cardSeatCalls(renderSlot).some(([provider]) => provider === 'anthropic')).toBe(false)
   })
-  it('renders the unkeyed whole-section provider as an open setup card in the first-run posture', async () => {
+  it('offers the unkeyed whole-section provider from the add card instead of a row', async () => {
     await mountFirstRun()
-    // Nothing is reachable yet, and CoServe AI has no configured credential and
-    // no stored apiKey → setup card.
-    expect(screen.getByText('CoServe AI')).toBeTruthy()
-    expect(screen.getByLabelText(en.keyInput)).toBeTruthy()
+    // CoServe AI has no stored key, so the page leads with the add action.
+    expect(screen.queryByText('CoServe AI')).toBeNull()
+    expect(screen.queryByLabelText(en.keyInput)).toBeNull()
     expect(screen.getByText('openai')).toBeTruthy()
     expect(screen.queryByText('Active')).toBeNull()
     expect(screen.queryByText('Inactive')).toBeNull()
-    expect(screen.getByText(en.add)).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: en.add }))
+    expect(screen.getByLabelText<HTMLSelectElement>(en.provider).value).toBe('deepseek-official')
+    expect(screen.getByRole('option', { name: 'CoServe AI' })).toBeTruthy()
+    expect(screen.getByLabelText(en.keyInput)).toBeTruthy()
   })
 
-  it('leaves the unkeyed provider a plain row once another provider is usable', async () => {
+  it('lists the whole-section provider as a row once its key is stored', async () => {
     await mountSection()
-    // openai's key is stored, so the user is not blocked and nothing on the
-    // page opens itself over them.
     expect(screen.queryByLabelText(en.keyInput)).toBeNull()
-    const configured = screen.getByRole('img', { name: en.credentialConfigured })
-    expect(configured.getAttribute('title')).toBe(en.credentialConfigured)
-    expect(configured.className).toContain('credentialDotConfigured')
-    expect(configured.closest('li')?.textContent).toContain('openai')
-    const missing = screen.getByRole('img', { name: en.credentialMissing })
-    expect(missing.closest('li')?.textContent).toContain('CoServe AI')
-    // The card is still one click away.
+    const configured = screen.getAllByRole('img', { name: en.credentialConfigured })
+    expect(configured[0]!.getAttribute('title')).toBe(en.credentialConfigured)
+    expect(configured[0]!.className).toContain('credentialDotConfigured')
+    expect(configured.map(dot => dot.closest('li')?.textContent)).toEqual([
+      expect.stringContaining('CoServe AI'), expect.stringContaining('openai'),
+    ])
     fireEvent.click(screen.getByRole('button', { name: deepSeekCopy(en.editProvider) }))
     expect(screen.getByLabelText(en.keyInput)).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: en.add }))
+    expect(screen.queryByRole('option', { name: 'CoServe AI' })).toBeNull()
   })
 
   it('marks only a confirmed missing reference and leaves native or unavailable state unmarked', async () => {
@@ -767,7 +774,7 @@ describe('ModelsSection', () => {
     expect(screen.getByText('zombie').closest('li')?.querySelector('[role="img"]')).toBeNull()
   })
 
-  it('turns the setup card into a row once the credential reports configured', async () => {
+  it('lists the whole-section provider once the credential reports configured', async () => {
     const { face } = await mountFirstRun()
     face.credentials.describe.mockImplementation((refs: string[]) => Promise.resolve(remoteOk(
       Object.fromEntries(refs.map(ref => [ref, { configured: true, writable: true }])),
@@ -783,13 +790,14 @@ describe('ModelsSection', () => {
       t={t}
       renderSlot={() => null}
     />)
-    // Now a row with an Edit button, not an open card.
-    expect(screen.getAllByText(en.edit).length).toBeGreaterThan(1)
+    // Now a row with an Edit button.
+    expect(screen.getByRole('button', { name: deepSeekCopy(en.editProvider) })).toBeTruthy()
     expect(screen.queryByLabelText(en.keyInput)).toBeNull()
   })
 
-  it('decides setup need from the joined credential state and the first-run posture', () => {
+  it('treats only a confirmed missing key on a whole-section provider as unadded', () => {
     const entry = { provider: 'p', displayName: 'p', settingsNs: 'llm-deepseek', settingsPath: [], active: true }
+    const missing = { configured: false, writable: true }
     const row = (credential: ProviderRow['credential']): ProviderRow => ({
       entry,
       configured: true,
@@ -797,13 +805,13 @@ describe('ModelsSection', () => {
       apiKeyEnv: 'X',
       credential,
     })
-    expect(needsSetup(row(undefined), false)).toBe(true)
-    expect(needsSetup(row({ configured: true, writable: true }), false)).toBe(false)
-    const nested = { ...row(undefined), entry: { ...entry, settingsPath: ['providers', 'x'] } }
-    expect(needsSetup(nested, false)).toBe(false)
-    // A user who can already reach some provider is not in the first-run
-    // posture, so nothing on the page opens itself.
-    expect(needsSetup(row(undefined), true)).toBe(false)
+    expect(awaitsKey(row(missing))).toBe(true)
+    expect(awaitsKey(row(undefined))).toBe(false)
+    expect(awaitsKey(row({ configured: true, writable: true }))).toBe(false)
+    expect(awaitsKey({ ...row(missing), entry: { ...entry, settingsPath: ['providers', 'x'] } })).toBe(false)
+    expect(awaitsKey({ ...row(missing), entry: { ...entry, provider: 'deepseek-account' } })).toBe(false)
+    // A profile naming no reference uses the page's derived reference.
+    expect(awaitsKey({ ...row(undefined), apiKeyEnv: undefined, derivedCredential: missing })).toBe(true)
   })
 
   it('derives conventional credential references from route ids', () => {
@@ -827,8 +835,9 @@ describe('ModelsSection', () => {
     expect(pathOps([], { a: 1 }, { a: 1 })).toEqual([])
   })
 
-  it('stores a typed key write-only from the setup card without touching settings', async () => {
+  it('stores a typed key for an unkeyed whole-section provider from the add card without touching settings', async () => {
     const { set, mutate, face } = await mountFirstRun()
+    fireEvent.click(screen.getByRole('button', { name: en.add }))
     const key = screen.getByLabelText<HTMLInputElement>(en.keyInput)
     fireEvent.change(key, { target: { value: '  sk-live  ' } })
     fireEvent.click(screen.getByText(en.apply))
@@ -879,7 +888,7 @@ describe('ModelsSection', () => {
     expect(save.disabled).toBe(true)
     expect(screen.getByText(en.onboardingLater)).toBeTruthy()
     expect(screen.queryByText(en.customized)).toBeNull()
-    expect(screen.queryByLabelText(en.baseUrl)).toBeNull()
+    expect(screen.getByLabelText(en.baseUrl)).toBeTruthy()
 
     fireEvent.change(key, { target: { value: '   ' } })
     expect(screen.getByText(en.keyRequired)).toBeTruthy()
@@ -1588,6 +1597,7 @@ describe('ModelsSection', () => {
       t={t}
       renderSlot={() => null}
     />)
+    fireEvent.click(await screen.findByRole('button', { name: deepSeekCopy(en.editProvider) }))
     const key = await screen.findByLabelText<HTMLInputElement>(en.keyInput)
     expect(key.placeholder).toBe(en.keyPlaceholder)
   })
@@ -1623,6 +1633,7 @@ describe('ModelsSection', () => {
         'credentials-local: invalid document at /home/user/.coserve/.credentials.yaml: BAD_INDENT at line 3, column 1',
       ))),
     })
+    fireEvent.click(screen.getByRole('button', { name: en.add }))
     const key = screen.getByLabelText<HTMLInputElement>(en.keyInput)
     fireEvent.change(key, { target: { value: 'sk-live' } })
     fireEvent.click(screen.getByText(en.apply))
@@ -2020,29 +2031,6 @@ describe('ModelsSection', () => {
     await screen.findByLabelText(en.provider)
     fireEvent.click(screen.getByText(en.cancel))
     await screen.findByText(en.add)
-    expect(screen.queryByLabelText(en.provider)).toBeNull()
-  })
-
-  it('collapses the setup card on cancel without disturbing another open card', async () => {
-    // The regression: the setup card shared the row/add/declare close handler,
-    // so cancelling it discarded the add card's draft while staying open itself.
-    await mountFirstRun()
-    expect(screen.getAllByLabelText(en.keyInput)).toHaveLength(1)
-    fireEvent.click(screen.getByText(en.add))
-    await screen.findByLabelText(en.provider)
-    expect(screen.getAllByLabelText(en.keyInput)).toHaveLength(2)
-
-    // The setup card is the first one on the page, above the add block.
-    fireEvent.click(screen.getAllByText(en.cancel)[0] as HTMLElement)
-    // The add card kept its draft…
-    expect(screen.getByLabelText(en.provider)).toBeTruthy()
-    // …and CoServe AI collapsed to an ordinary row carrying the missing-key dot.
-    expect(screen.getAllByLabelText(en.keyInput)).toHaveLength(1)
-    expect(screen.getAllByRole('img', { name: en.credentialMissing })
-      .some(dot => dot.closest('li')?.textContent?.includes('CoServe AI') === true)).toBe(true)
-    // Its card reopens through Edit, which closes the add card as any row does.
-    fireEvent.click(screen.getByRole('button', { name: deepSeekCopy(en.editProvider) }))
-    expect(screen.getAllByLabelText(en.keyInput)).toHaveLength(1)
     expect(screen.queryByLabelText(en.provider)).toBeNull()
   })
 

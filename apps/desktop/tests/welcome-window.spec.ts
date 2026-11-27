@@ -1,15 +1,17 @@
 import { join } from 'node:path'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { resolveDesktopLocale } from '../src/locale.ts'
-import { needsWelcome, WELCOME_IPC } from '../src/welcome-api.ts'
+import { needsWelcome, WELCOME_IPC, type WelcomeFolderResult } from '../src/welcome-api.ts'
 
 const electron = vi.hoisted(() => ({
   create: vi.fn<(options: unknown) => ReturnType<typeof createWindow>>(),
   root: '/desktop-app',
   handlers: new Map<string, (event: unknown, value?: unknown, attributes?: unknown) => Promise<unknown>>(),
+  showOpenDialog: vi.fn<(window: unknown, options: unknown) => Promise<{ canceled: boolean; filePaths: string[] }>>(),
 }))
 vi.mock('electron', () => ({
   app: { getAppPath: () => electron.root },
+  dialog: { showOpenDialog: electron.showOpenDialog },
   BrowserWindow: vi.fn(function (options: unknown) { return electron.create(options) }),
   ipcMain: {
     handle: (name: string, handler: (event: unknown, value?: unknown, attributes?: unknown) => Promise<unknown>) => {
@@ -46,6 +48,8 @@ const operations = {
   cancelSignIn: async () => ({ links: { usageUrl: 'http://localhost/usage', topUpUrl: 'http://localhost/top_up' }, status: 'signed-out' as const, attempt: null }),
   copySignInLink: async () => undefined,
   saveApiKey: () => Promise.resolve({ ok: true as const }),
+  projectsFolder: async (): Promise<string | undefined> => undefined,
+  saveProjectsFolder: async (folder: string): Promise<WelcomeFolderResult> => ({ status: 'changed', folder }),
   skip: () => Promise.resolve(),
 }
 
@@ -140,6 +144,45 @@ describe('desktop welcome window', () => {
     expect(copySignInLink).toHaveBeenCalledExactlyOnceWith('attempt')
     window.once.mock.calls[0]![1]()
     expect(electron.handlers.size).toBe(0)
+  })
+
+  it('opens the folder picker at the current CAD project folder and hands a selection to the Host', async () => {
+    const window = createWindow()
+    electron.create.mockReturnValue(window)
+    const saveProjectsFolder = vi.fn(operations.saveProjectsFolder)
+    await openWelcomeWindow(resolveDesktopLocale('en'), { ...operations, projectsFolder: async () => 'D:\\Coserve CAD', saveProjectsFolder })
+    const own = { sender: window.webContents, senderFrame: window.webContents.mainFrame }
+    const choose = electron.handlers.get(WELCOME_IPC.chooseProjectsFolder)!
+    expect(await electron.handlers.get(WELCOME_IPC.projectsFolder)!(own)).toBe('D:\\Coserve CAD')
+    electron.showOpenDialog.mockResolvedValueOnce({ canceled: true, filePaths: [] })
+    expect(await choose(own)).toEqual({ status: 'cancelled' })
+    expect(saveProjectsFolder).not.toHaveBeenCalled()
+    electron.showOpenDialog.mockResolvedValueOnce({ canceled: false, filePaths: ['E:\\cad'] })
+    expect(await choose(own)).toEqual({ status: 'changed', folder: 'E:\\cad' })
+    expect(saveProjectsFolder).toHaveBeenCalledExactlyOnceWith('E:\\cad')
+    expect(electron.showOpenDialog).toHaveBeenLastCalledWith(window, { defaultPath: 'D:\\Coserve CAD', properties: ['openDirectory', 'createDirectory'] })
+  })
+
+  it('opens model API setup as a modal of the workspace window', async () => {
+    const window = createWindow()
+    electron.create.mockReturnValue(window)
+    const parent = createWindow()
+    await openWelcomeWindow(resolveDesktopLocale('zh-CN'), operations, parent as never)
+    expect(electron.create).toHaveBeenCalledWith(expect.objectContaining({
+      parent, modal: true, title: resolveDesktopLocale('zh-CN').messages.welcomeSetupTitle,
+      webPreferences: expect.objectContaining({ additionalArguments: ['--dsh-welcome-locale=zh-CN', '--dsh-welcome-mode=setup'] }),
+    }))
+    window.once.mock.calls[0]![1]()
+  })
+
+  it('rejects the folder picker where the build has no selectable CAD project folder', async () => {
+    const window = createWindow()
+    electron.create.mockReturnValue(window)
+    electron.showOpenDialog.mockClear()
+    await openWelcomeWindow(resolveDesktopLocale('en'), operations)
+    const own = { sender: window.webContents, senderFrame: window.webContents.mainFrame }
+    await expect(electron.handlers.get(WELCOME_IPC.chooseProjectsFolder)!(own)).rejects.toThrow('not selectable')
+    expect(electron.showOpenDialog).not.toHaveBeenCalled()
   })
 
   it('does not show a superseded window when its delayed document finishes loading', async () => {
