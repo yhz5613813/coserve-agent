@@ -1,6 +1,6 @@
 # Maintainer build: compile the single-file offline installer after build-app.ps1 and build-payload.ps1.
 # Needs Inno Setup 7 at F:\code\CADFlow\tools\inno and the files of apps/desktop/installer/offline copied to F:\code\CADFlow\build\installer.
-# Output: F:\code\CADFlow\build\dist\CoserveCAD-Setup-<version>-x64.exe and its .sha256.
+# Output: F:\code\CADFlow\build\dist\CoServe-AI-<version>-win-x64-offline-unsigned.exe and its .sha256.
 $ErrorActionPreference = 'Continue'
 $ProgressPreference = 'SilentlyContinue'
 function Must($what) { if ($LASTEXITCODE -ne 0) { Write-Host "FAILED: $what"; exit 1 } }
@@ -16,7 +16,7 @@ Copy-Item "$Build\tools\vc_redist.x64.exe" "$Payload\vc_redist.x64.exe" -Force
 $version = (Get-Content "$Build\src\apps\desktop\package.json" -Raw | ConvertFrom-Json).version
 New-Item -ItemType Directory -Force "$Build\dist" | Out-Null
 & 'F:\code\CADFlow\tools\inno\ISCC.exe' /Q "/DAppVersion=$version" "/DPayload=$Payload" "/O$Build\dist" "$Build\installer\coserve-cad.iss"; Must 'ISCC'
-$setup = Get-Item "$Build\dist\CoserveCAD-Setup-$version-x64.exe"
+$setup = Get-Item "$Build\dist\CoServe-AI-$version-win-x64-offline-unsigned.exe"
 '{0}  {1}' -f (Get-FileHash $setup.FullName -Algorithm SHA256).Hash.ToLower(), $setup.Name | Set-Content "$($setup.FullName).sha256" -Encoding ASCII
 '{0} {1:N0} MB' -f $setup.Name, ($setup.Length / 1MB)
 Write-Host "BUILD_INSTALLER_OK $version"

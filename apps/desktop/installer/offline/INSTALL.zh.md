@@ -1,6 +1,6 @@
 # Coserve CAD 桌面版：离线安装说明
 
-`CoserveCAD-Setup-<版本>-x64.exe` 是单文件安装程序，包含运行所需的全部依赖，安装和使用都不需要联网，适合内网部署。支持 Windows 10 1809 及以上、Windows 11、Windows Server 2019/2022/2025（x64）。
+`CoServe-AI-<版本>-win-x64-offline-unsigned.exe` 是单文件安装程序，包含运行所需的全部依赖，安装和使用都不需要联网，适合内网部署。支持 Windows 10 1809 及以上、Windows 11、Windows Server 2019/2022/2025（x64）。
 
 ## 安装
 
@@ -10,7 +10,7 @@
 4. 组件页可取消“热仿真”（约 3 GB），其余为必装。
 5. 完成后启动，选择“使用 API Key”，填写 API Key 和 Base URL（内网模型网关地址，例如 `http://10.0.0.8:8000`）。Base URL 留空则使用默认地址。
 
-静默安装：`CoserveCAD-Setup-<版本>-x64.exe /VERYSILENT /DIR=D:\CoserveCAD`；可加 `/COMPONENTS=main` 不装热仿真，加 `/TASKS=desktopicon` 创建桌面快捷方式。
+静默安装：`CoServe-AI-<版本>-win-x64-offline-unsigned.exe /VERYSILENT /DIR=D:\CoserveCAD`；可加 `/COMPONENTS=main` 不装热仿真，加 `/TASKS=desktopicon` 创建桌面快捷方式。
 
 ## 数据与端口
 
