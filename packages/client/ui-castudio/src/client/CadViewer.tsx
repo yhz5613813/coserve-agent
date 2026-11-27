@@ -15,7 +15,8 @@ export interface CadViewerFace {
 }
 
 /**
- * Redirect for a CAD file opened from the file tree: ask the CAD frame to show it, switch to the CAD tab in this tab's place and close this tab.
+ * Redirect for a CAD file opened from the file tree: ask the CAD frame to show it, switch to the CAD tab in this tab's place
+ * and close this tab.
  * A tab restored by a reload (`revision` 0) was not opened by anyone, so it only closes.
  */
 export function CadViewer(props: PropsRuntime<'sidebar.right.pane.tab'> & PropsLocale<'castudio'> & InjectFace<CadViewerFace>) {

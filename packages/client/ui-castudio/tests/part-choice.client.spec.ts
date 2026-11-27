@@ -15,7 +15,9 @@ const project: CadProject = { id: 'root', name: 'CAD', workspacePath: 'C:\\CAD\\
 
 function bridge(answer: (path: string, method?: string, body?: unknown) => unknown) {
   const request = vi.fn(async (path: string, method?: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE', body?: unknown) => answer(path, method, body))
-  const transport: StudioBridge = { request, subscribe: async () => {}, unsubscribe: async () => {}, onEvent: () => () => {}, workspaceUrl: async id => id }
+  const transport: StudioBridge = {
+    request, subscribe: async () => {}, unsubscribe: async () => {}, onEvent: () => () => {}, workspaceUrl: async id => id,
+  }
   return { request, controller: new CadController(transport, async () => {}) }
 }
 

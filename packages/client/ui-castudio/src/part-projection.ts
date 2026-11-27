@@ -33,7 +33,8 @@ export function applyCadPart(state: CadPartProjection | null, event: SessionEven
       latest = { projectId: marker.reference.projectId, slug: marker.reference.part, name: marker.reference.name }
     }
   }
-  if (latest === null || (state !== null && state.projectId === latest.projectId && state.slug === latest.slug && state.name === latest.name)) return state
+  if (latest === null
+    || (state !== null && state.projectId === latest.projectId && state.slug === latest.slug && state.name === latest.name)) return state
   return latest
 }
 

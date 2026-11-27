@@ -67,7 +67,9 @@ describe('cadPart projection', () => {
     say(session, marker('lid', '盖'))
     const checkpoint = ctx.sessionProjections.checkpoint(session)
     const suffix = say(session, marker('housing', '壳体'))
-    const restored = ctx.sessionProjections.restore(checkpoint, [suffix], SessionLogOffset(suffix.seq), session.header, session.inheritedEventCount)
+    const restored = ctx.sessionProjections.restore(
+      checkpoint, [suffix], SessionLogOffset(suffix.seq), session.header, session.inheritedEventCount,
+    )
     expect(restored.snapshot.values.cadPart).toEqual(partOf(ctx, session))
     const row = checkpoint.cadPart!
     expect(() => ctx.sessionProjections.restore({ ...checkpoint, cadPart: { ...row, val: { projectId: 'root', slug: 'Bad Slug', name: 'x' } } },

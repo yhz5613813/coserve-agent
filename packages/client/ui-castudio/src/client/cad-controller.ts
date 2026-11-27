@@ -18,7 +18,10 @@ export interface CadNotice { kind: 'created' | 'open-failed'; projectId: string;
  * a chosen part without a model file omits `path`.
  */
 export interface CadOpenTarget { projectId: string; path?: string; part?: string }
-/** The latest request to show a file in one Session's CAD frame; `seq` increases with every request so the frame can tell a new one from one it already sent. */
+/**
+ * The latest request to show a file in one Session's CAD frame;
+ * `seq` increases with every request so the frame can tell a new one from one it already sent.
+ */
 export interface CadOpenRequest extends CadOpenTarget { seq: number; sessionId: SessionId }
 /**
  * `theme` is the host color scheme and `locale` the active DSH locale id the embedded workbench starts with.
@@ -150,7 +153,11 @@ export class CadController {
     if (service === undefined) { await this.load(); return }
     try { await service.restart() }
     catch (error) {
-      if (!this.disposed) this.snapshot.update((state) => { state.error = { kind: cadErrorKind(error), message: String((error as Error)?.message ?? error) } })
+      if (!this.disposed) {
+        this.snapshot.update((state) => {
+          state.error = { kind: cadErrorKind(error), message: String((error as Error)?.message ?? error) }
+        })
+      }
     }
   }
 

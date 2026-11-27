@@ -24,7 +24,9 @@ export interface PartSignals {
  * @returns the recommended slug, or undefined for an empty list.
  */
 export function recommendPart(parts: readonly CadPart[], signals: PartSignals): string | undefined {
-  const latest = parts.reduce<CadPart | undefined>((best, part) => (part.updatedAt ?? -Infinity) > (best?.updatedAt ?? -Infinity) ? part : best, undefined)
+  const latest = parts.reduce<CadPart | undefined>(
+    (best, part) => (part.updatedAt ?? -Infinity) > (best?.updatedAt ?? -Infinity) ? part : best, undefined,
+  )
   const score = (part: CadPart): number => (signals.shown === part.slug ? 2 : 0)
     + (signals.recent[0] === part.slug ? 2 : signals.recent.includes(part.slug) ? 1 : 0)
     + (latest !== undefined && latest === part ? 1 : 0)

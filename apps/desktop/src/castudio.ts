@@ -13,7 +13,9 @@ import { caStudioApiUrl, caStudioOrigin, caStudioProjectId, consumeCAStudioEvent
  * @param configuredOrigin - Local service address from the desktop launch environment.
  * @returns Cleanup for all IPC handlers and outstanding subscriptions.
  */
-export function installCAStudio(assertOwner: (event: IpcMainInvokeEvent) => BrowserWindow, service: CAStudioService, configuredOrigin: string): () => void {
+export function installCAStudio(
+  assertOwner: (event: IpcMainInvokeEvent) => BrowserWindow, service: CAStudioService, configuredOrigin: string,
+): () => void {
   const origin = caStudioOrigin(configuredOrigin)
   const watchers = new Set<BrowserWindow>()
   const unwatch = service.onStatus((status) => {
@@ -108,7 +110,10 @@ export function installCAStudio(assertOwner: (event: IpcMainInvokeEvent) => Brow
     watchers.clear()
     for (const owner of owners.values()) owner.detach()
     owners.clear()
-    for (const channel of [CASTUDIO_IPC.request, CASTUDIO_IPC.subscribe, CASTUDIO_IPC.unsubscribe, CASTUDIO_IPC.workspace, CASTUDIO_IPC.status, CASTUDIO_IPC.restart]) {
+    for (const channel of [
+      CASTUDIO_IPC.request, CASTUDIO_IPC.subscribe, CASTUDIO_IPC.unsubscribe,
+      CASTUDIO_IPC.workspace, CASTUDIO_IPC.status, CASTUDIO_IPC.restart,
+    ]) {
       ipcMain.removeHandler(channel)
     }
   }

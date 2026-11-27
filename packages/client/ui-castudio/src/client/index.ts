@@ -156,7 +156,9 @@ export function apply(ctx: Context): void {
     name: 'sidebar.right.pane.tab', key: tabId, locale: 'castudio', inject: () => face,
   }, CadWorkspace)), 'castudio.workspace')
   // CAD files opened from DSH's file tree show in the CAD tab; only Sessions inside a CAD project claim them.
-  const viewerTarget = (address: string) => cadOpenTarget(address, id => ctx.sessions.list.getSnapshot().byId[id]?.cwd, controller.snapshot.getSnapshot().projects)
+  const viewerTarget = (address: string) => cadOpenTarget(
+    address, id => ctx.sessions.list.getSnapshot().byId[id]?.cwd, controller.snapshot.getSnapshot().projects,
+  )
   ctx.effect(() => ctx.sidebarRightTabs.register(cadViewerDefinition(viewerTarget, () => t('workspace'))), 'castudio.viewer-tab')
   ctx.effect(() => ctx.slots.inject('sidebar.right.pane.tab', () => ctx.slots.register({
     name: 'sidebar.right.pane.tab', key: CAD_VIEWER_ID, locale: 'castudio',

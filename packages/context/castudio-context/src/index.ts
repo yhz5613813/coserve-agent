@@ -138,7 +138,10 @@ export interface CAStudioViewportState {
   selection: CAStudioViewportSelection | null
   options: CAStudioViewportOptions
   camera: CAStudioViewportCamera | null
-  /** The CAD part the viewer shows; `model.path` is relative to that part's folder. Absent from pages that predate parts, which show part `default`. */
+  /**
+   * The CAD part the viewer shows; `model.path` is relative to that part's folder.
+   * Absent from pages that predate parts, which show part `default`.
+   */
   part?: { slug: string; name: string }
 }
 

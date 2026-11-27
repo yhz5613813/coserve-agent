@@ -286,7 +286,9 @@ describe('CAStudio service lifecycle', () => {
   })
 
   it('makes bridge requests wait while starting and fail with a typed error once failed', async () => {
-    const pending = startCAStudioService(baseOptions({ probe: async () => undefined, spawn: fakeSpawn(new FakeChild({ exitAfterSpawn: 75 })).spawn }))
+    const pending = startCAStudioService(baseOptions({
+      probe: async () => undefined, spawn: fakeSpawn(new FakeChild({ exitAfterSpawn: 75 })).spawn,
+    }))
     expect(pending.status()).toEqual({ state: 'starting' })
     const error = await requireCAStudioReady(pending).catch((failure: unknown) => failure)
     expect(error).toBeInstanceOf(CAStudioUnavailableError)

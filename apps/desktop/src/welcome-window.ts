@@ -64,7 +64,9 @@ let disposeActiveHandlers: (() => void) | undefined
  * @param parent - workspace window; when present the window opens as its modal in `setup` mode.
  * @returns the visible window; a failed load destroys it before rejecting.
  */
-export async function openWelcomeWindow(locale: DesktopLocale, operations: WelcomeHostOperations, parent?: BrowserWindow): Promise<BrowserWindow> {
+export async function openWelcomeWindow(
+  locale: DesktopLocale, operations: WelcomeHostOperations, parent?: BrowserWindow,
+): Promise<BrowserWindow> {
   const options = welcomeWindowOptions(process.platform, locale, parent === undefined ? 'welcome' : 'setup')
   const window = new BrowserWindow(parent === undefined ? options : { ...options, parent, modal: true })
   disposeActiveHandlers?.()
@@ -143,7 +145,6 @@ export async function openWelcomeWindow(locale: DesktopLocale, operations: Welco
     if (!window.isDestroyed()) window.destroy()
     throw error
   }
-  // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- Another window can replace ownership during loadFile.
   if (active && !window.isDestroyed()) {
     window.show()
     void operations.analytics?.('auth_page_view', {})

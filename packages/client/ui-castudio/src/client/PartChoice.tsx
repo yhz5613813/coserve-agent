@@ -60,7 +60,9 @@ export function PartChoice(props: PropsRuntime<'conversation.input.dock'> & Prop
   const pick = selected ?? offer?.recommended
   const part = offer?.parts.find(item => item.slug === pick)
   // The recommended part leads the list; the others keep their service order.
-  const parts = offer === undefined ? [] : offer.parts.toSorted((left, right) => Number(right.slug === offer.recommended) - Number(left.slug === offer.recommended))
+  const parts = offer === undefined ? [] : offer.parts.toSorted(
+    (left, right) => Number(right.slug === offer.recommended) - Number(left.slug === offer.recommended),
+  )
   const now = Date.now()
 
   return <section className={css.root} aria-labelledby={titleId}>

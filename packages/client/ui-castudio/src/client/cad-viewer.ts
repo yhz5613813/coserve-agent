@@ -16,7 +16,9 @@ const CAD_PATTERNS = ['*.step', '*.stp', '*.stl', '*.glb', '*.gltf', '*.obj', '*
  * @param projects - the CAD projects; a project owns the Sessions rooted in its workspace.
  * @returns the project, part and part-relative path, or `undefined` for an address that names no file inside a CAD project's workspace.
  */
-export function cadOpenTarget(address: string, cwdOf: (sessionId: SessionId) => string | undefined, projects: readonly CadProject[]): CadOpenTarget | undefined {
+export function cadOpenTarget(
+  address: string, cwdOf: (sessionId: SessionId) => string | undefined, projects: readonly CadProject[],
+): CadOpenTarget | undefined {
   const parsed = parseFileAddress(address)
   if (parsed?.scope !== 'session') return undefined
   // The address is a string boundary: its id segment is the Session id it names.
@@ -34,6 +36,8 @@ export function cadOpenTarget(address: string, cwdOf: (sessionId: SessionId) => 
  * @param title - the tab chip text.
  * @returns the type registration; its body redirects to the CAD tab.
  */
-export function cadViewerDefinition(target: (address: string) => CadOpenTarget | undefined, title: () => string): SidebarRightTabDefinition {
+export function cadViewerDefinition(
+  target: (address: string) => CadOpenTarget | undefined, title: () => string,
+): SidebarRightTabDefinition {
   return { id: CAD_VIEWER_ID, kind: 'cad-viewer', patterns: CAD_PATTERNS, canOpen: address => target(address) !== undefined, title }
 }

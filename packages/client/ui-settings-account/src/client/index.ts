@@ -1,4 +1,7 @@
-/** CoServe AI Desktop, and Web deployments configured with `localAccount`, use local identity; other Web deployments retain cloud accounts. */
+/**
+ * CoServe AI Desktop, and Web deployments configured with `localAccount`, use local identity;
+ * other Web deployments retain cloud accounts.
+ */
 import type { Context } from '@deepseek-ai/cordis'
 import { apply as applyCloudAccount } from './cloud-account.ts'
 import { registerLocalAccount } from './LocalAccount.tsx'

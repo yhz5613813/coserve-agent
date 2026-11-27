@@ -43,7 +43,8 @@ function readReference(ref: string): CadReference | undefined {
   const item = value as Record<string, unknown>
   return typeof item.projectId === 'string' && typeof item.label === 'string' && isSelection(item.selection)
     && (item.part === undefined || isPartSlug(item.part))
-    ? { projectId: item.projectId, ...(item.part === undefined ? {} : { part: item.part }), label: item.label, selection: item.selection } : undefined
+    ? { projectId: item.projectId, ...(item.part === undefined ? {} : { part: item.part }), label: item.label, selection: item.selection }
+    : undefined
 }
 
 /**

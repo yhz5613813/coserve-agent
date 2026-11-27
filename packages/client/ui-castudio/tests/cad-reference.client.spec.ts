@@ -13,7 +13,9 @@ function makeInput(sink = vi.fn<SessionInputDeps['defaultSink']>(async () => ({ 
   const triggers: InputTriggerController = {
     launcher: createSnapshotStore<string | null>(null), lexicon: createSnapshotStore<ReadonlyMap<'/' | '@', readonly string[]>>(new Map()),
     track: () => {}, arbitrate: () => 'pass', onSpace: () => false,
-    serializeReference: (source, ref, signal) => (source === CAD_PART_SOURCE ? cadPartSource : cadReferenceSource).codec!.serialize(ref, signal),
+    serializeReference: (source, ref, signal) => (
+      (source === CAD_PART_SOURCE ? cadPartSource : cadReferenceSource).codec!.serialize(ref, signal)
+    ),
     adjudicate: async () => undefined, resolveClaim: async () => undefined,
     openReference: () => false, toggleSource: () => {},
   }

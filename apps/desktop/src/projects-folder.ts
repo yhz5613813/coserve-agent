@@ -11,7 +11,8 @@ export type ProjectsFolderProblem = 'relative' | 'non-ascii' | 'drive-root' | 't
 
 /**
  * Choose the portable default outside the user profile, because the Python/gmsh toolchain accepts only ASCII paths.
- * @param creatable - creates the folder if needed and reports success; a missing D:, an optical drive (with or without media) or a read-only volume reports false.
+ * @param creatable - creates the folder if needed and reports success;
+ * a missing D:, an optical drive (with or without media) or a read-only volume reports false.
  * @param systemDrive - Windows `SystemDrive`, such as `C:`.
  * @returns `D:\Coserve CAD` when it can be created, otherwise `<systemDrive>\Coserve CAD`.
  */
