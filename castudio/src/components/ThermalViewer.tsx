@@ -3,7 +3,7 @@ import type {MutableRefObject} from 'react';
 import type {ThermalManifest,ThermalRun} from '../../shared/thermal';
 import {ThermalScene,type ThermalPose} from './ThermalScene';
 
-export const thermalFileUrl=(project:string,run:string,file:string)=>'/api/projects/'+project+'/thermal/'+run+'/file?path='+encodeURIComponent(file);
+export const thermalFileUrl=(project:string,run:string,file:string)=>'api/projects/'+project+'/thermal/'+run+'/file?path='+encodeURIComponent(file);
 function fieldHistory(run:ThermalRun):ThermalManifest['result']|undefined {
   if(run.result)return run.result.result;
   const preview=run.preview;if(!preview)return;
@@ -18,7 +18,7 @@ export function ThermalViewer({projectId,run,pose}:{projectId:string;run:Thermal
   const [field,setField]=useState<{values:Float32Array;min:number;max:number}>();
   const [frame,setFrame]=useState(0),[follow,setFollow]=useState(true),[error,setError]=useState('');
   const [display,setDisplay]=useState<{frame:number;min:number;max:number}|null>(null);
-  const result=fieldHistory(run),live=!run.result,base='/api/projects/'+projectId+'/thermal/'+run.id;
+  const result=fieldHistory(run),live=!run.result,base='api/projects/'+projectId+'/thermal/'+run.id;
   const count=result?.frames||0,vertices=result?.vertices||0,min=result?.minimum_C||0,max=result?.maximum_C||0;
   const selected=Math.min(frame,Math.max(0,count-1));
   const fieldURL=live?base+'/preview/'+selected:thermalFileUrl(projectId,run.id,'job/surface.bin');
@@ -54,23 +54,23 @@ export function ThermalViewer({projectId,run,pose}:{projectId:string;run:Thermal
   const shown=display?.frame??selected,low=display?.min??min,high=display?.max??max;
   const span=Math.max(1e-6,max-min),time=Math.max(1,result.times_s.at(-1)||1);
   const line=(key:'minimum_C'|'maximum_C'|'average_C')=>result.stats.map((row,i)=>[30+result.times_s[i]/time*560,115-(row[key]-min)/span*95].join(',')).join(' ');
-  return <section className="thermal-view">
-    {surface?<ThermalScene identity={base+':'+vertices} sourceHash={run.sourceHash} surface={surface} field={field} pose={pose} disabled onError={setError}/>:<p>正在加载真实热表面…</p>}
+  return <section className="thermal-view ui-stack">
+    {surface?<ThermalScene identity={base+':'+vertices} sourceHash={run.sourceHash} surface={surface} field={field} pose={pose} disabled onError={setError}/>:<p className="ui-hint">正在加载热表面…</p>}
     {error&&<p role="alert" className="form-error">{error}</p>}
-    {!display&&!error&&<p>正在加载真实温度场…</p>}
-    <div className="thermal-legend"><span>{low.toFixed(2)} °C</span><i/><span>{high.toFixed(2)} °C</span></div>
-    <label>{result.analysis_mode==='steady'?(shown===0?'初始状态（未求稳态）':'稳态解'):'时刻 '+result.times_s[shown]?.toFixed(1)+' s'}
+    {!display&&!error&&<p className="ui-hint">正在加载温度场…</p>}
+    <div className="ui-legend"><span>{low.toFixed(2)} °C</span><i/><span>{high.toFixed(2)} °C</span></div>
+    <label className="ui-field">{result.analysis_mode==='steady'?(shown===0?'初始状态（未求稳态）':'稳态解'):'时刻 '+result.times_s[shown]?.toFixed(1)+' s'}
       <input aria-label="温度场时刻" type="range" min={0} max={count-1} step={1} value={selected} disabled={!surface} onChange={event=>{setFollow(false);setFrame(Number(event.target.value));}}/>
     </label>
-    {live&&<label className="thermal-follow"><input type="checkbox" checked={follow} onChange={event=>setFollow(event.target.checked)}/>自动跟随最新温度帧</label>}
-    <small>{live?'色标随已保存温度范围更新':'全时段统一色标'} · 拖动旋转，滚轮缩放 · 仿真表面网格，原始 XYZ 坐标</small>
-    {result.analysis_mode==='steady'?<p>稳态结果保留初始状态和稳态解两帧，不代表升温过程。</p>:<>
+    {live&&<label className="ui-check"><input type="checkbox" checked={follow} onChange={event=>setFollow(event.target.checked)}/>自动跟随最新温度帧</label>}
+    <p className="ui-hint">{live?'色标随已保存温度范围更新':'全时段统一色标'} · 拖动旋转，滚轮缩放</p>
+    {result.analysis_mode==='steady'?<p className="ui-hint">稳态结果只有初始状态和稳态解两帧，不代表升温过程。</p>:<>
       <svg viewBox="0 0 620 145" role="img" aria-label="温度随时间变化曲线" style={{width:'100%',maxHeight:180}}>
         <path d="M30 15V115H590" fill="none" stroke="#596273"/>
         {(['minimum_C','average_C','maximum_C'] as const).map((key,i)=><polyline key={key} points={line(key)} fill="none" stroke={['#6aaaff','#72d6c2','#ffb56a'][i]} strokeWidth={2}/>)}
         <text x={30} y={137} fill="#aeb7c6" fontSize={11}>0 s</text><text x={555} y={137} fill="#aeb7c6" fontSize={11}>{time} s</text>
       </svg>
-      <small>蓝：最低温度 · 绿：体积平均温度 · 橙：最高温度。仅连接实际保存帧。</small>
+      <p className="ui-hint">蓝：最低 · 绿：体积平均 · 橙：最高；仅连接实际保存帧。</p>
     </>}
   </section>;
 }

@@ -3,7 +3,7 @@ import path from 'node:path';
 import os from 'node:os';
 import { createHash, randomUUID } from 'node:crypto';
 import {setTimeout as delay} from 'node:timers/promises';
-import { Store, HttpError, jsonRead, jsonWrite, safePath } from './storage.js';
+import { Store, HttpError, jsonRead, jsonWrite, rootOf, safePath } from './storage.js';
 import { History } from './history.js';
 import { Events } from './events.js';
 import { runProcess } from './process.js';
@@ -11,6 +11,8 @@ import {readThermalPreview,thermalPreviewBytes} from './thermal-preview.js';
 import {ThermalResource} from './thermal-resource.js';
 import type { ThermalConfig, ThermalRun, ThermalManifest, ThermalProbe } from '../shared/thermal.js';
 const hash = (bytes: Buffer) => createHash('sha256').update(bytes).digest('hex');
+export const THERMAL_NOT_INSTALLED = '热仿真组件未安装';
+export const thermalRuntimeFile = (store: Store) => path.join(store.root, 'thermal-runtime.json');
 
 // Host adapter only. All geometry, meshing, material validation and FEM live in
 // the separately installed thermal-sim distribution and its versioned CLI.
@@ -18,14 +20,20 @@ export class Thermal {
   private active = new Map<string, { run: ThermalRun; abort: AbortController; done: Promise<void> }>();
   private pending = 0;
   constructor(private store: Store, private history: History, private events: Events,private resource=new ThermalResource()) {}
-  async config() {
-    const config = await jsonRead<{executable:string; device?:string}>(path.join(this.store.root, 'thermal-runtime.json'), { executable: process.env.STUDIO_THERMAL_PYTHON || (process.platform === 'win32' ? 'python' : 'python3') });
+  /** The configured runtime (thermal-runtime.json, else STUDIO_THERMAL_PYTHON), or null when the thermal component is not installed. Unknown record fields (the desktop's `auto`) pass through. */
+  async runtime() {
+    const config = await jsonRead<{executable:string; device?:string}|null>(thermalRuntimeFile(this.store), null) ?? (process.env.STUDIO_THERMAL_PYTHON ? { executable: process.env.STUDIO_THERMAL_PYTHON } : null);
+    if (!config) return null;
     const device = config.device ?? 'cpu';
     if (device !== 'cpu' && device !== 'cuda') throw new HttpError(400, '热仿真设备必须为 cpu 或 cuda');
     return {...config, device};
   }
+  async config() { const config = await this.runtime(); if (!config) throw new HttpError(422, THERMAL_NOT_INSTALLED); return config; }
+  /** `GET /api/thermal/runtime`: the runtime with `configured:true`, or `configured:false` and an empty executable. */
+  async status() { const config = await this.runtime(); return config ? { ...config, configured: true } : { executable: '', device: 'cpu', configured: false, error: THERMAL_NOT_INSTALLED }; }
   async probe(value?: unknown): Promise<ThermalProbe> {
-    const config = await this.config();
+    // An explicit executable may be probed (and saved) before any runtime is installed.
+    const config = value === undefined ? await this.config() : await this.runtime() ?? { executable: undefined, device: 'cpu' };
     const executable = value ?? config.executable;
     if (typeof executable !== 'string' || executable.length > 2048 || /[\0\r\n]/.test(executable) || (!path.isAbsolute(executable) && !['python','python3'].includes(executable))) throw new HttpError(400, '请填写 Python 解释器绝对路径');
     let log = '';
@@ -38,7 +46,7 @@ export class Thermal {
       return { ok: true, executable, version: body.version, message: body.compute.device === 'cuda' ? `热仿真 GPU 可用：${body.compute.name}` : '热仿真包与 CPU 依赖可用' };
     } catch (e) { return { ok: false, executable, message: (e as Error).message.slice(-3000) }; }
   }
-  async saveRuntime(value: unknown) { const probe = await this.probe(value); if (!probe.ok) throw new HttpError(422, probe.message); await jsonWrite(path.join(this.store.root, 'thermal-runtime.json'), { ...await this.config(), executable: probe.executable }); return probe; }
+  async saveRuntime(value: unknown) { const probe = await this.probe(value); if (!probe.ok) throw new HttpError(422, probe.message); await jsonWrite(thermalRuntimeFile(this.store), { ...await this.runtime(), executable: probe.executable }); return probe; }
   private directory(project: string, run?: string) {
     if (run !== undefined && !/^[a-f0-9-]{36}$/.test(run)) throw new HttpError(400, '无效仿真编号');
     return path.join(this.store.projectRoot(project), 'thermal', run || '');
@@ -64,13 +72,13 @@ export class Thermal {
     try { const file=await safePath(this.store.workspace(project),run.source); run.stale=hash(await fs.readFile(file))!==run.sourceHash; } catch { run.stale=true; }
     return run;
   }
-  async recover() { for(const project of await this.store.projects()) for(const run of await this.list(project.id)) if(['running','queued'].includes(run.state)) { run.state='interrupted';run.error='服务中断，请重新运行';run.finishedAt=new Date().toISOString(); await this.persist(project.id,run); } }
+  async recover() { for(const project of await this.store.records()) for(const run of await this.list(project.id)) if(['running','queued'].includes(run.state)) { run.state='interrupted';run.error='服务中断，请重新运行';run.finishedAt=new Date().toISOString(); await this.persist(project.id,run); } }
   /** Queue waits for an editing owner; direct submission acquires the project immediately. */
   async start(project: string, input: { source?: unknown; units?: unknown; config?: unknown; expectedHash?: unknown; surfaceHash?:unknown }, queue=false) {
     if(this.active.size + this.pending >= 1) throw new HttpError(409,'已有热仿真正在运行，请等待或取消');
     const releaseCPU=this.resource.acquire();let release:(()=>void)|undefined;let dispatched=false;this.pending++;
     try {
-      release=queue?undefined:this.store.acquire(project);
+      release=queue?undefined:this.store.acquire(project,'运行热仿真');
       await this.store.project(project);
       if(typeof input.source!=='string' || !/\.(step|stp|stl)$/i.test(input.source)) throw new HttpError(400,'请选择项目中的 STEP/STL 实体');
       if(!['mm','cm','m'].includes(String(input.units))) throw new HttpError(400,'请选择模型单位');
@@ -98,7 +106,7 @@ export class Thermal {
     try {
       while(!release){
         signal.throwIfAborted();
-        try{release=this.store.acquire(project);}
+        try{release=this.store.acquire(project,'运行热仿真');}
         catch(error){
           if(!(error instanceof HttpError)||error.status!==409)throw error;
           await delay(200,undefined,{signal});
@@ -125,7 +133,8 @@ export class Thermal {
         run.files.push({path:path.relative(output,file).split(path.sep).join('/'),size:stat.size,hash:hash(await fs.readFile(file))});
       }};await scan(output);run.result=manifest;run.state='succeeded';
     } catch(e){run.state=signal.aborted?'cancelled':'failed';run.error=(e as Error).message;run.files=[];delete run.result;}
-    finally{run.finishedAt=new Date().toISOString();try{await this.persist(project,run);}finally{release?.();}}
+    // Part statuses (GET parts) derive from the latest run, so the root's part list refreshes.
+    finally{run.finishedAt=new Date().toISOString();try{await this.persist(project,run);}finally{release?.();this.events.emit(rootOf(project),'parts_changed',{});}}
   }
   async cancel(project:string,id:string){await this.read(project,id);const active=this.active.get(project);if(active?.run.id===id){active.abort.abort();await active.done;}return this.read(project,id);}
   async file(project:string,id:string,relative:string){

@@ -320,6 +320,18 @@ describe('castudio-context injection', () => {
     expect(text).toContain('…and 20 more projects')
   })
 
+  it('joins the skill guide path with the separator of a POSIX workspace path', async () => {
+    const fake = await fakeCastudio()
+    fake.body = [{ ...PROJECTS[0], workspacePath: '/Users/me/.coserve/castudio/projects/project-b/workspace/' }]
+    const { ctx } = await mount({ url: fake.url })
+    const session = Session.create(SessionId('posix'))
+    openMessageTurn(session, 1)
+
+    await fire(ctx, sessionAgent(session), 1, 1)
+
+    expect(contextTexts(session)[0]).toContain('CAD skill guide: /Users/me/.coserve/castudio/projects/project-b/workspace/.agents/skills/castudio/SKILL.md\n')
+  })
+
   it('reports a reachable service with no projects', async () => {
     const fake = await fakeCastudio()
     fake.body = []
@@ -357,7 +369,10 @@ describe('castudio-context injection', () => {
     expect(text).toContain('tab: model preview')
     expect(text).toContain('tab: parametric modeling')
     expect(text).toContain('Model: demonstration geometry — loaded')
-    expect(text).toContain('Parts: 2 total, 1 hidden')
+    expect(text).toContain('Meshes: 2 total, 1 hidden')
+    expect(text).not.toContain('Parts:')
+    // A page that reports no part is the legacy default part at the workspace root.
+    expect(text).toContain('Project / Part: "Enclosure" / "default" (default) — part files are in the workspace root; model paths are relative to it')
     expect(text).toContain('Selection: "底座" (mesh-a)')
     expect(text).toContain('View: orthographic projection; section at 40%; explode 30; face selection mode')
     expect(text).toContain('You can inspect and operate this workbench with the cad_workbench tool.')
@@ -402,6 +417,46 @@ describe('castudio-context injection', () => {
     expect(texts).toHaveLength(2)
     expect(texts[1]).toContain('CAStudio CAD service (turn 3):')
     expect(texts[1]).toContain('Selection: "螺栓 01" (mesh-b)')
+  })
+
+  it('names the part the viewer shows and re-injects when the part changes', async () => {
+    const fake = await fakeCastudio()
+    fake.viewportsBody = [{ ...VIEWPORTS[0]!, state: { ...VIEWPORT_STATE, part: { slug: 'housing', name: 'Housing' } } }]
+    const { ctx } = await mount({ url: fake.url })
+    const session = Session.create(SessionId('part-switch'))
+    const agent = sessionAgent(session)
+
+    openMessageTurn(session, 1)
+    await fire(ctx, agent, 1, 1)
+    session.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
+    fake.viewportsBody = [{ ...VIEWPORTS[0]!, state: { ...VIEWPORT_STATE, part: { slug: 'lid', name: 'Lid' } } }]
+    openMessageTurn(session, 2)
+    await fire(ctx, agent, 2, 1)
+
+    const texts = contextTexts(session)
+    expect(texts).toHaveLength(2)
+    expect(texts[0]).toContain('Project / Part: "Enclosure" / "Housing" (housing) — part files are in parts/housing/ under the workspace root; model paths are relative to it')
+    expect(texts[1]).toContain('Project / Part: "Enclosure" / "Lid" (lid) — part files are in parts/lid/ under the workspace root')
+  })
+
+  it('degrades to the project-only reading when a reported part is malformed', async () => {
+    const fake = await fakeCastudio()
+    const { ctx } = await mount({ url: fake.url })
+    const session = Session.create(SessionId('part-malformed'))
+    const agent = sessionAgent(session)
+    let turn = 0
+    for (const part of [{ slug: 3, name: 'Housing' }, { slug: 'housing' }, null, 'housing']) {
+      turn += 1
+      fake.viewportsBody = [{ ...VIEWPORTS[0]!, state: { ...VIEWPORT_STATE, part } }]
+      openMessageTurn(session, turn)
+      await fire(ctx, agent, turn, 1)
+      session.append('turn/end', { turn, reason: { kind: 'completed' } })
+    }
+
+    const [text] = contextTexts(session)
+    expect(contextTexts(session)).toHaveLength(1)
+    expect(text).toContain('It manages these CAD projects:')
+    expect(text).not.toContain('workbenches open')
   })
 
   it('degrades to the project-only reading when the workbench list fails', async () => {

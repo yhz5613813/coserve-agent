@@ -107,6 +107,13 @@ export interface ConnectionConfig {
   cookieMaxAgeDays?: number
   /** Maximum buffered JSON body for every `/api` request. Default: 300 MiB. */
   maxRequestBodyBytes?: number
+  /**
+   * Admit every browser that passes the Host/Origin fence without the printed
+   * launch token: the first index GET mints the session cookie. Only for
+   * deployments where network placement or a gateway already restricts access.
+   * Default: false.
+   */
+  openAccess?: boolean
 }
 
 export const Config: z<ConnectionConfig> = z.object({
@@ -114,6 +121,7 @@ export const Config: z<ConnectionConfig> = z.object({
   trustedHosts: z.array(String).default([]),
   cookieMaxAgeDays: z.natural().min(1).default(30),
   maxRequestBodyBytes: z.natural().min(1).default(DEFAULT_MAX_REQUEST_BODY_BYTES),
+  openAccess: z.boolean().default(false),
 })
 
 /**
@@ -136,7 +144,7 @@ export async function apply(ctx: Context, config?: ConnectionConfig): Promise<vo
   const connection = new HostConnectionService(
     ctx,
     trustedHosts,
-    await BrowserAuth.create(ctx.root, ctx.credentials, cookieMaxAgeDays),
+    await BrowserAuth.create(ctx.root, ctx.credentials, cookieMaxAgeDays, config?.openAccess ?? false),
   )
   ctx.inject(['webServer'], (webCtx) => {
     assertImageBodyCapacity(webCtx, maxRequestBodyBytes)

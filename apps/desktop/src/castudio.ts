@@ -1,16 +1,26 @@
 /** Trusted application-frame IPC for the local CAStudio API and project streams. */
 import { ipcMain, type BrowserWindow, type IpcMainInvokeEvent } from 'electron'
 import { CASTUDIO_IPC, type CAStudioEventMessage } from './castudio-protocol.ts'
+import { requireCAStudioReady, type CAStudioService } from './castudio-service.ts'
 import { caStudioApiUrl, caStudioOrigin, caStudioProjectId, consumeCAStudioEvents, requestCAStudio } from './castudio-transport.ts'
 
 /**
- * Install CAStudio IPC. Window navigation, closure, and application shutdown release streams.
+ * Install CAStudio IPC. Window navigation, closure, and application shutdown release streams. Requests and
+ * subscriptions wait while the service starts and reject with `CAStudioUnavailableError` text once it failed or exited;
+ * a window that read the status receives every later status on `CASTUDIO_IPC.statusChanged`.
  * @param assertOwner - Rejects subframes, shell pages, and foreign windows.
+ * @param service - Service manager owning the CAStudio process at `configuredOrigin`.
  * @param configuredOrigin - Local service address from the desktop launch environment.
  * @returns Cleanup for all IPC handlers and outstanding subscriptions.
  */
-export function installCAStudio(assertOwner: (event: IpcMainInvokeEvent) => BrowserWindow, configuredOrigin: string): () => void {
+export function installCAStudio(
+  assertOwner: (event: IpcMainInvokeEvent) => BrowserWindow, service: CAStudioService, configuredOrigin: string,
+): () => void {
   const origin = caStudioOrigin(configuredOrigin)
+  const watchers = new Set<BrowserWindow>()
+  const unwatch = service.onStatus((status) => {
+    for (const owner of watchers) if (!owner.webContents.isDestroyed()) owner.webContents.send(CASTUDIO_IPC.statusChanged, status)
+  })
   const owners = new Map<BrowserWindow, { streams: Map<string, AbortController>; detach: () => void }>()
   function streamsFor(owner: BrowserWindow): Map<string, AbortController> {
     const existing = owners.get(owner)
@@ -32,9 +42,22 @@ export function installCAStudio(assertOwner: (event: IpcMainInvokeEvent) => Brow
     if (typeof value !== 'string' || !/^[a-zA-Z0-9_-]{1,128}$/.test(value)) throw new Error('Invalid CAStudio subscription')
     return value
   }
-  ipcMain.handle(CASTUDIO_IPC.request, (event, path: unknown, method: unknown, body: unknown) => {
+  ipcMain.handle(CASTUDIO_IPC.request, async (event, path: unknown, method: unknown, body: unknown) => {
     assertOwner(event)
+    await requireCAStudioReady(service)
     return requestCAStudio(origin, path, method, body)
+  })
+  ipcMain.handle(CASTUDIO_IPC.status, (event) => {
+    const owner = assertOwner(event)
+    if (!watchers.has(owner)) {
+      watchers.add(owner)
+      owner.once('closed', () => { watchers.delete(owner) })
+    }
+    return service.status()
+  })
+  ipcMain.handle(CASTUDIO_IPC.restart, (event) => {
+    assertOwner(event)
+    return service.restart()
   })
   ipcMain.handle(CASTUDIO_IPC.workspace, (event, project: unknown) => {
     assertOwner(event)
@@ -55,6 +78,7 @@ export function installCAStudio(assertOwner: (event: IpcMainInvokeEvent) => Brow
     const projectId = caStudioProjectId(project)
     const key = subscriptionId(id)
     if (after !== undefined && (typeof after !== 'number' || !Number.isSafeInteger(after) || after < 0)) throw new Error('Invalid CAStudio event cursor')
+    await requireCAStudioReady(service)
     const streams = streamsFor(owner)
     streams.get(key)?.abort()
     const controller = new AbortController()
@@ -82,9 +106,14 @@ export function installCAStudio(assertOwner: (event: IpcMainInvokeEvent) => Brow
       .finally(() => { if (streams.get(key) === controller) streams.delete(key) })
   })
   return () => {
+    unwatch()
+    watchers.clear()
     for (const owner of owners.values()) owner.detach()
     owners.clear()
-    for (const channel of [CASTUDIO_IPC.request, CASTUDIO_IPC.subscribe, CASTUDIO_IPC.unsubscribe, CASTUDIO_IPC.workspace]) {
+    for (const channel of [
+      CASTUDIO_IPC.request, CASTUDIO_IPC.subscribe, CASTUDIO_IPC.unsubscribe,
+      CASTUDIO_IPC.workspace, CASTUDIO_IPC.status, CASTUDIO_IPC.restart,
+    ]) {
       ipcMain.removeHandler(channel)
     }
   }

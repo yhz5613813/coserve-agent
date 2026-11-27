@@ -61,11 +61,18 @@
       "path": "../../core/session"
     },
     {
+      "path": "../../session/session-projection"
+    },
+    {
       "path": "../../util/crypto"
+    },
+    {
+      "path": "../../util/workspace-path"
     }
   ],
   "exclude": [
     "src/index.ts",
-    "src/optimization-driver.ts"
+    "src/optimization-driver.ts",
+    "src/part-projection.ts"
   ]
 }

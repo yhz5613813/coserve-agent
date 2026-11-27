@@ -2,11 +2,13 @@
 import type { Context, Volatile } from '@deepseek-ai/cordis'
 import type {} from '@deepseek-ai/dsh-host-webserver'
 import type {} from '@deepseek-ai/dsh-settings'
-import { type ContactConfig, ContactConfigFields, CONTACT_CONFIG_GLOBAL } from './contact-config.ts'
+import { type ContactConfig, ContactConfigFields, CONTACT_CONFIG_GLOBAL, LOCAL_ACCOUNT_GLOBAL } from './contact-config.ts'
 import z from '@deepseek-ai/schemastery'
 import { OnboardingSettingsFields, type OnboardingStep, type OnboardingPurpose, type OnboardingProcess } from './onboarding-settings.ts'
 /** Public contact options and live device-local onboarding progress. */
 export interface Config extends ContactConfig {
+  /** Use the local identity (no cloud sign-in or onboarding) in the browser, as Desktop does. Default: false. */
+  localAccount: boolean
   /** Onboarding progress format version. */
   version: Volatile<1>
   /** Last accepted onboarding page. */
@@ -25,6 +27,7 @@ export interface Config extends ContactConfig {
 
 /** Configuration projected through the account plugin's shared form. */
 export const Config = z.object({
+  localAccount: z.boolean().default(false),
   contactFormUrl: ContactConfigFields.contactFormUrl,
   contactSource: ContactConfigFields.contactSource,
   bonusAckRetryDelayMs: ContactConfigFields.bonusAckRetryDelayMs,
@@ -52,5 +55,6 @@ export function apply(ctx: Context, config: Config): void {
       contactFormUrl: config.contactFormUrl, contactSource: config.contactSource,
       bonusAckRetryDelayMs: config.bonusAckRetryDelayMs, bonusAckRetryMaxDelayMs: config.bonusAckRetryMaxDelayMs,
     } satisfies ContactConfig })
+    table.push({ kind: 'global', name: LOCAL_ACCOUNT_GLOBAL, value: config.localAccount })
   })
 }

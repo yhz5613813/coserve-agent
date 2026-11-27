@@ -43,6 +43,7 @@ function harness(overrides: { selectFaceResult?: boolean; snapshot?: string | nu
   const handle: ViewportHandle = {
     fit: view => { calls.push(`fit:${view ?? 'iso'}`); },
     snapshot: () => {},
+    exportModel: async () => new Blob(),
     snapshotData: () => overrides.snapshot === undefined ? 'data:image/png;base64,QUJD' : overrides.snapshot,
     state: () => ({ camera }),
     select: id => { calls.push(`select:${id}`); },
@@ -56,6 +57,9 @@ function harness(overrides: { selectFaceResult?: boolean; snapshot?: string | nu
     setOptions: update => { currentOptions = typeof update === 'function' ? update(currentOptions) : update; },
     setMeshes: update => { currentMeshes = typeof update === 'function' ? update(currentMeshes) : update; },
     openWorkspace: mode => { calls.push(`workspace:${mode}`); },
+    revealViewer: () => { calls.push('reveal-viewer'); },
+    openModel: async (path, part) => { calls.push(`open:${part ?? '-'}:${path}`); return path === 'missing.step' ? '未找到模型 missing.step' : null; },
+    setPanel: (panel, state) => { calls.push(`panel:${panel}:${state}`); },
     buildState: () => buildViewportState(input({ meshes: currentMeshes, options: currentOptions })),
     wait: async () => {},
   };
@@ -83,6 +87,17 @@ test('applyViewportCommand executes every action against the handle', async () =
   assert.deepEqual(h.calls, ['fit:iso', 'fit:top', 'select:mesh-a', 'select:null', 'selectFace:mesh-b:2', 'visible:mesh-b:true', 'workspace:parametric']);
 });
 
+test('open switches part and model through the page, reveals the viewer, and reports a missing file; panel toggles a panel', async () => {
+  const h = harness();
+  h.deps.buildState = () => buildViewportState(input({ part: { slug: 'shaft', name: '轴' } }));
+  const opened = await applyViewportCommand({ action: 'open', path: 'shaft.step', part: 'shaft' }, h.deps);
+  assert.deepEqual(opened.state?.part, { slug: 'shaft', name: '轴' });
+  assert.deepEqual(await applyViewportCommand({ action: 'open', path: 'missing.step' }, h.deps), { ok: false, error: '未找到模型 missing.step' });
+  assert.equal((await applyViewportCommand({ action: 'panel', panel: 'editor', state: 'collapse' }, h.deps)).ok, true);
+  assert.deepEqual(h.calls, ['open:shaft:shaft.step', 'reveal-viewer', 'open:-:missing.step', 'panel:editor:collapse']);
+  assert.equal('part' in buildViewportState(input()), false);
+});
+
 test('applyViewportCommand reports failures for unknown meshes, missing faces and missing handle', async () => {
   const h = harness({ selectFaceResult: false });
   h.deps.buildState = () => buildViewportState(input());
@@ -94,13 +109,13 @@ test('applyViewportCommand reports failures for unknown meshes, missing faces an
   assert.equal(h.calls.filter(call => call.startsWith('selectFace')).length, 1);
 });
 
-test('applyViewportCommand snapshot returns the data URL and switches to the model workspace', async () => {
+test('applyViewportCommand snapshot returns the data URL without switching the workspace', async () => {
   const h = harness({ snapshot: 'data:image/png;base64,iVBORw0KGgo=' });
   h.deps.buildState = () => buildViewportState(input());
   const result = await applyViewportCommand({ action: 'snapshot' }, h.deps);
   assert.equal(result.ok, true);
   assert.equal(result.snapshot, 'data:image/png;base64,iVBORw0KGgo=');
-  assert.deepEqual(h.calls, ['workspace:model']);
+  assert.deepEqual(h.calls, ['reveal-viewer']);
   const empty = harness({ snapshot: null });
   empty.deps.buildState = () => buildViewportState(input());
   assert.deepEqual(await applyViewportCommand({ action: 'snapshot' }, empty.deps), { ok: false, error: '视口截图失败' });

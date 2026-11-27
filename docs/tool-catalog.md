@@ -2490,7 +2490,7 @@ todo_write is session-owned state; UIs render the latest todo/write event as a c
 
 ### `cad_workbench`
 
-Inspect and operate the live CAD workbench the user has open in CAStudio. Actions: state (read the viewport state), snapshot (save a PNG of the viewport), fit (frame the model from iso/top/front/right), select and select_face (pick a part by id or exact name, or a CAD face), visible (show or hide a part), options (edges, grid, ortho, section, explode, selection mode), and workspace (switch the model/parametric/structural/thermal tab). It only inspects and operates the view; geometry, colour and material edits go through the parametric code API described in the castudio skill. When several workbenches are open, pass "project" with the workbench id from the CAStudio context.
+Inspect and operate the live CAD workbench the user has open in CAStudio. Actions: state (read the viewport state), snapshot (save a PNG of the viewport), fit (frame the model from iso/top/front/right), select and select_face (pick a part by id or exact name, or a CAD face), visible (show or hide a part), options (edges, grid, ortho, section, explode, selection mode), workspace (switch the model/parametric/structural/thermal tab), open (open a model file in the viewer, optionally switching to another part), and panel (expand or collapse the viewer, editor, files, or properties panel). A CAD project holds parts: part "default" is the workspace root and every other part lives in parts/<slug>/. Pass "partSlug" (from the "Project / Part" line of the CAStudio context) so a command only runs while the viewer shows that part; the service refuses it when the viewer shows a different part. Every result names the part the viewer shows. It only inspects and operates the view; geometry, colour and material edits go through the parametric code API described in the castudio skill. When several workbenches are open, pass "project" with the workbench id from the CAStudio context.
 
 ```json
 {
@@ -2507,7 +2507,9 @@ Inspect and operate the live CAD workbench the user has open in CAStudio. Action
         "select_face",
         "visible",
         "options",
-        "workspace"
+        "workspace",
+        "open",
+        "panel"
       ]
     },
     "project": {
@@ -2524,9 +2526,35 @@ Inspect and operate the live CAD workbench the user has open in CAStudio. Action
         "right"
       ]
     },
+    "partSlug": {
+      "type": "string",
+      "description": "CAD part slug: \"default\" or a lowercase hyphenated slug of a folder under parts/. open: the part to switch to. Any other command action: the part you expect the viewer to show; the command is refused when the viewer shows another part. state ignores it and reports the part shown."
+    },
+    "path": {
+      "type": "string",
+      "description": "open only: model file path relative to the target part's workspace (the workspace root for part \"default\", parts/<slug>/ otherwise)."
+    },
+    "panel": {
+      "type": "string",
+      "description": "panel action only: the workbench panel to expand or collapse.",
+      "enum": [
+        "viewer",
+        "editor",
+        "files",
+        "properties"
+      ]
+    },
+    "state": {
+      "type": "string",
+      "description": "panel action only: expand or collapse the panel.",
+      "enum": [
+        "expand",
+        "collapse"
+      ]
+    },
     "part": {
       "type": "string",
-      "description": "select, select_face, and visible: a part id or an exact part name from the reported state."
+      "description": "select, select_face, and visible: a mesh (viewport object) id or an exact mesh name from the reported state. It is not a CAD part; use partSlug for that."
     },
     "face": {
       "type": "integer",

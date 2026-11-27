@@ -45,6 +45,8 @@ kind: "package-reference"
 
 选择**添加工作区**并选取目录，即可注册工作区并打开 Session。**视图选项 → 分组方式**默认为**按工作区**，将工作区作为同级分组显示。选择**按工作区树**后，每个 Workspace 会位于最近的已注册祖先之下，之后添加的 Workspace 也会自动归入。每个 Workspace 保留自己的 Session 和行操作，子 Workspace 显示在父级自己的 Session 之前。祖先默认展开，已有的折叠偏好除外。保存的折叠状态也会隐藏当前 Session；如果后代 Workspace 包含当前 Session，祖先文件夹图标仍保持高亮。各层级的高亮和点击区域保持整行同宽，仅内容缩进。拖拽 Workspace 仅重排同级项目；落在后代行上时，由最近的兼容祖先接收，因此无需先折叠父级就能将其他工作区拖到其后。选择搜索结果会展开全部祖先。分组方式和展开状态保存在当前浏览器中；切换模式会保留各 Workspace 的展开偏好，单列表视图保持平铺。
 
+在两种按工作区分组方式中，插件可以把每个 Workspace 的 Session 再分成子分组，例如按对话所处理的 CAD 零件分组。每个子分组前有一行标题；子分组按其第一个 Session 出现的顺序排列，没有子分组的 Session 归入末尾的**其他会话**，当前选中的新会话行仍排在最前且不带标题。置顶行在各自子分组内领先，拖拽只能在同一子分组内重排。未分组区和单列表视图保持平铺。
+
 层级仅使用已注册的规范路径，不扫描项目，也不解析符号链接别名。嵌套不会改变 Session 的工作目录、日志或 Workspace 归属。删除父 Workspace 后，子 Workspace 仍保持注册，并归入下一个已注册祖先；没有祖先时显示在根层级。
 
 在不支持悬停的设备上，展开的 Workspace 行显示菜单和新建会话按钮，已归档的搜索结果始终显示取消归档按钮。
@@ -106,6 +108,8 @@ Workspace 和 Session 的启动基线均就绪后，空安装环境调用 `works
 本包是一条组合：两个目标 slot 都由其他插件声明，因此 `apply` 使用 `slots.inject()` 在各自的声明生命周期内完成注册，并在目标 slot 的声明恢复后重新注册。
 
 浏览器入口为每个 Session 行声明三个 root 作用域的 `list` 子 slot：`sidebar.session.row.leading`、`sidebar.session.row.trailing` 和 `sidebar.session.row.hover`。三者只接收 `sessionId`，占用方据此读取自己的数据，不建立 Session 绑定。Session 作用域的 slot 会激活并保留列表中每个 Session。
+
+`ctx.uiWorkspace.sessionSubgroups.register({ id, groupOf })` 注册一个 Session 子分组提供方并返回其 disposer；注册方 fiber 销毁时也会移除它，重复的 `id` 会抛出错误。`groupOf(summary)` 接收 Session 列表摘要（包括其摘要 projection 值），返回带有已本地化标签的 `{ key, label }`，或返回 `undefined` 使该 Session 不分组。它必须同步且无副作用；Session 列表或提供方集合变化时，浏览器会重新计算分组。提供方按注册顺序查询，第一个给出结果的提供方生效。`deriveGroups` 通过视图的 `subgroupOf` 应用结果，并在每行标记 `subgroup`；未分组的一段使用 Ungrouped 键和空标签，由浏览器本地化显示。
 
 前置 slot 仅在该行主状态为 idle 时占用状态单元，归档行留空。尾部 slot 按 `order` 升序放置非交互图标，位置在时间标签之后、置顶标记之前。空白行不渲染尾部 slot；空 slot 不增加间距。悬浮 slot 仅在该行的悬浮卡片打开时挂载。
 

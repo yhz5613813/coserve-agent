@@ -29,7 +29,8 @@ vi.mock('../src/web-document.ts', () => ({
 vi.mock('../src/operation-report-job.ts', () => ({ runOperationReportJob: vi.fn(async () => ({ appended: false, timedOut: false, cancelled: false })) }))
 // The bundled-service lifecycle has its own spec; startup tests must not probe a real port.
 vi.mock('../src/castudio-service.ts', () => ({
-  startCAStudioService: () => ({ outcome: Promise.resolve('external'), stop: vi.fn(async () => {}) }),
+  allocateCAStudioOrigin: async () => 'http://127.0.0.1:4317',
+  startCAStudioService: () => ({ outcome: Promise.resolve('external'), stop: vi.fn(async () => {}), restart: vi.fn(), status: () => 'ready', onStatus: () => () => {}, settled: Promise.resolve() }),
 }))
 // Report persistence has its own unit tests; here it resolves within microtasks so the fatal
 // dialog never outlives the test that triggered it.

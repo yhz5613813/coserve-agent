@@ -6,18 +6,32 @@ export type ViewportState = {
   selection: { meshId: string; name: string; triangle?: number; point?: number[]; bounds: number[]; triangles: number; cadFace?: unknown; cylinderObjectId?: string } | null;
   options: { edges: boolean; grid: boolean; ortho: boolean; section: number; explode: number; mode: 'component' | 'face' };
   camera: { position: [number, number, number]; target: [number, number, number]; projection: 'perspective' | 'orthographic' } | null;
+  /** The part this viewer shows; `model.path` is relative to that part's workspace. Absent from pages that predate parts. */
+  part?: ViewportPart;
 };
-export type ViewportCommand =
+/** `slug` is `default` for the project root, otherwise the folder under `parts/`. */
+export type ViewportPart = { slug: string; name: string };
+export type ViewportPanel = 'viewer' | 'editor' | 'files' | 'properties';
+/**
+ * `part` on `open` is the part to switch to; on every other action it is the part the caller expects
+ * the viewer to show, and the service refuses the command when the viewer shows another one.
+ */
+export type ViewportCommand = { part?: string } & (
   | { action: 'fit'; view?: 'iso' | 'top' | 'front' | 'right' }
   | { action: 'select'; meshId: string | null }
   | { action: 'select_face'; meshId: string; face: number }
   | { action: 'visible'; meshId: string; visible: boolean }
   | { action: 'options'; options: Partial<ViewportState['options']> }
   | { action: 'workspace'; workspace: ViewportState['workspace'] }
-  | { action: 'snapshot' };
+  | { action: 'snapshot' }
+  | { action: 'open'; path: string }
+  | { action: 'panel'; panel: ViewportPanel; state: 'expand' | 'collapse' });
 
+export const partSlugPattern = /^(default|[a-z0-9]+(?:-[a-z0-9]+)*)$/;
+const partSlug = (value: unknown): value is string => typeof value === 'string' && value.length <= 40 && partSlugPattern.test(value);
+const panels: ViewportPanel[] = ['viewer', 'editor', 'files', 'properties'];
 const workspaces = ['model', 'parametric', 'structural', 'thermal'];
-const stateKeys = ['workspace', 'model', 'meshes', 'selection', 'options', 'camera'];
+const stateKeys = ['workspace', 'model', 'meshes', 'selection', 'options', 'camera', 'part'];
 const optionKeys = ['edges', 'grid', 'ortho', 'section', 'explode', 'mode'];
 const isObject = (value: unknown): value is Record<string, unknown> => !!value && typeof value === 'object' && !Array.isArray(value);
 const finite = (value: unknown): value is number => typeof value === 'number' && Number.isFinite(value);
@@ -88,6 +102,11 @@ export function validateViewportState(body: unknown): ViewportState {
     meshes, selection, options, camera: view,
   };
   if (model.error !== undefined) state.model.error = model.error;
+  if (body.part !== undefined) {
+    const part = body.part;
+    if (!isObject(part) || !partSlug(part.slug) || !shortText(part.name, 120) || Object.keys(part).some(key => key !== 'slug' && key !== 'name')) throw new Error('视口零件信息无效');
+    state.part = { slug: part.slug, name: part.name };
+  }
   return state;
 }
 
@@ -99,15 +118,23 @@ const commandKeys: Record<string, string[]> = {
   options: ['action', 'options'],
   workspace: ['action', 'workspace'],
   snapshot: ['action'],
+  open: ['action', 'path'],
+  panel: ['action', 'panel', 'state'],
 };
 
 export function validateViewportCommand(body: unknown): ViewportCommand {
   if (!isObject(body) || typeof body.action !== 'string') throw new Error('未知视口指令');
   const allowed = commandKeys[body.action];
   if (!allowed) throw new Error('未知视口指令');
-  for (const key of Object.keys(body)) if (!allowed.includes(key)) throw new Error('视口指令含有不支持的字段');
-  const raw = body as Record<string, unknown>;
-  switch (body.action) {
+  for (const key of Object.keys(body)) if (key !== 'part' && !allowed.includes(key)) throw new Error('视口指令含有不支持的字段');
+  if (body.part !== undefined && !partSlug(body.part)) throw new Error('视口零件标识无效');
+  const { part, ...rest } = body as Record<string, unknown>;
+  const command = parseCommand(rest);
+  return part === undefined ? command : { ...command, part: part as string };
+}
+
+function parseCommand(raw: Record<string, unknown>): ViewportCommand {
+  switch (raw.action) {
     case 'fit':
       if (raw.view !== undefined && !['iso', 'top', 'front', 'right'].includes(String(raw.view))) throw new Error('视口视角无效');
       return raw.view === undefined ? { action: 'fit' } : { action: 'fit', view: raw.view as 'iso' | 'top' | 'front' | 'right' };
@@ -127,6 +154,12 @@ export function validateViewportCommand(body: unknown): ViewportCommand {
       return { action: 'workspace', workspace: raw.workspace as ViewportState['workspace'] };
     case 'snapshot':
       return { action: 'snapshot' };
+    case 'open':
+      if (!shortText(raw.path, 1000) || !raw.path || raw.path.startsWith('/') || raw.path.split(/[\\/]/).includes('..')) throw new Error('打开的模型路径无效');
+      return { action: 'open', path: raw.path };
+    case 'panel':
+      if (!panels.includes(raw.panel as ViewportPanel) || (raw.state !== 'expand' && raw.state !== 'collapse')) throw new Error('面板指令参数无效');
+      return { action: 'panel', panel: raw.panel as ViewportPanel, state: raw.state };
     default:
       throw new Error('未知视口指令');
   }

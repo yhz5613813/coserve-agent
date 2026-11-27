@@ -23,3 +23,5 @@ export const ContactConfigFields = {
 export const ContactConfig: z<Partial<ContactConfig>, ContactConfig> = z.object(ContactConfigFields)
 /** Bootstrap key containing no account credentials. */
 export const CONTACT_CONFIG_GLOBAL = '__DSH_CONTACT_CONFIG__'
+/** Bootstrap key set to true when the deployment selects the local identity instead of cloud accounts. */
+export const LOCAL_ACCOUNT_GLOBAL = '__DSH_LOCAL_ACCOUNT__'

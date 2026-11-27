@@ -571,6 +571,47 @@ describe('deriveGroups', () => {
   })
 })
 
+describe('deriveGroups secondary subgroups', () => {
+  const parts: Record<string, string> = { a1: 'bracket', a2: 'housing', a3: 'bracket', loose: 'bracket' }
+  const subgroupOf = (session: SessionSummary) => {
+    const part = parts[session.id]
+    return part === undefined ? undefined : { key: part, label: part.toUpperCase() }
+  }
+  const rows = (sessions: SessionListState, state = noRows) => deriveGroups(
+    sessions, [workspace('w', ['blank', 'a1', 'plain', 'a2', 'a3'])], state, noAttention,
+    { ...view(['w', UNGROUPED_KEY]), subgroupOf },
+  )
+
+  it('partitions a Workspace into first-appearance runs with ungrouped rows last and the New Session row first', () => {
+    const sessions = withMain(list(
+      { ...summary('blank', 0), blank: true }, summary('a1', 5), summary('plain', 4), summary('a2', 3), summary('a3', 2),
+      summary('loose', 1),
+    ), sid('blank'))
+    const [group, ungrouped] = rows(sessions)
+    expect(group!.sessions.map(row => [row.id, row.subgroup?.key, row.subgroup?.label])).toEqual([
+      [sid('blank'), undefined, undefined],
+      [sid('a1'), 'bracket', 'BRACKET'],
+      [sid('a3'), 'bracket', 'BRACKET'],
+      [sid('a2'), 'housing', 'HOUSING'],
+      [sid('plain'), UNGROUPED_KEY, ''],
+    ])
+    expect(ungrouped!.key).toBe(UNGROUPED_KEY)
+    expect(ungrouped!.sessions.map(row => [row.id, row.subgroup])).toEqual([[sid('loose'), undefined]])
+  })
+
+  it('keeps pinned rows leading inside their own run', () => {
+    const sessions = list(summary('a1', 5), summary('plain', 4), summary('a2', 3), summary('a3', 2))
+    const [group] = rows(sessions, rowState({ pinned: ['a3'] }))
+    expect(group!.sessions.map(row => row.id)).toEqual([sid('a3'), sid('a1'), sid('a2'), sid('plain')])
+  })
+
+  it('leaves a Workspace flat when no row has a subgroup', () => {
+    const sessions = list(summary('plain', 4))
+    const [group] = deriveGroups(sessions, [workspace('w', ['plain'])], noRows, noAttention, { ...view(['w']), subgroupOf })
+    expect(group!.sessions.map(row => [row.id, row.subgroup])).toEqual([[sid('plain'), undefined]])
+  })
+})
+
 describe('deriveFlat', () => {
   it('renders ordinary forks in the supplied order regardless of timestamps', () => {
     const parent = summary('parent', 10)

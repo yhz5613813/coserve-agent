@@ -101,3 +101,20 @@ test('HTTP saves checkpoint both states, reject stale editor text, and respect t
     assert.equal(await fs.readFile(path.join(f.workspace, 'part.py'), 'utf8'), 'radius = 3');
   } finally { server.closeAllConnections(); await new Promise<void>(resolve => server.close(() => resolve())); await f.cleanup(); }
 });
+test('uploading the same name with identical bytes reuses the earlier import without new revisions', async () => {
+  const f = await fixture(); const { app } = await createApp(f.root); const server = createServer(app);
+  await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve));
+  const url = `http://127.0.0.1:${(server.address() as AddressInfo).port}/api/projects/${f.id}`;
+  const upload = async (bytes: string, name: string) => { const form = new FormData(); form.set('file', new Blob([bytes]), name); const r = await fetch(`${url}/upload`, { method: 'POST', body: form }); return { status: r.status, body: await r.json() }; };
+  const revisions = async () => (await fetch(`${url}/history`).then(r => r.json())).length;
+  try {
+    const first = await upload('solid a', 'part.stl'); assert.equal(first.status, 200); assert.equal(first.body.duplicate, undefined);
+    const count = await revisions();
+    assert.deepEqual(await upload('solid a', 'part.stl'), { status: 200, body: { path: first.body.path, name: 'part.stl', duplicate: true } });
+    assert.equal(await revisions(), count);
+    const renamed = await upload('solid a', 'other.stl'), changed = await upload('solid b', 'part.stl');
+    for (const result of [renamed, changed]) { assert.equal(result.body.duplicate, undefined); assert.notEqual(result.body.path, first.body.path); }
+    assert.equal((await fs.readdir(path.join(f.workspace, 'imports'))).length, 3);
+    assert.equal(await revisions(), count + 4);
+  } finally { server.closeAllConnections(); await new Promise<void>(resolve => server.close(() => resolve())); await f.cleanup(); }
+});

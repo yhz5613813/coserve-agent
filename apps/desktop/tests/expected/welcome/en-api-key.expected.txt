@@ -1,8 +1,7 @@
+Configure model API
 CoServe AI
-CoServe AI
-Add an API key to get started
-Configure a model API key to start using CoServe AI
+Configure model API
+You can also configure it later in Settings.
 Enter API key [password]
-Save and continue [disabled]
+Save [disabled]
 Set up later
-Back to sign in

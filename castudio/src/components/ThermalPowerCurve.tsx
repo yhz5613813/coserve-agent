@@ -1,4 +1,5 @@
 import {useEffect,useRef,useState} from 'react';
+import {Trash2} from 'lucide-react';
 import {plotPoint,insertPowerPoint} from '../thermal/curve-geometry';
 export type PowerPoint={time_s:number;power_W:number};
 export function ThermalPowerCurve({points,power,end,duration,disabled,onChange}:{points:PowerPoint[];power:number;end:number;duration:number;disabled:boolean;onChange:(points:PowerPoint[])=>void}){
@@ -6,8 +7,8 @@ export function ThermalPowerCurve({points,power,end,duration,disabled,onChange}:
   const curve=preview||points,time=Math.max(1,duration,end,...points.map(p=>p.time_s)),maximum=Math.max(1,power,...points.map(p=>p.power_W))*1.2;
   useEffect(()=>{const cancel=(event:KeyboardEvent)=>{if(event.key==='Escape'){drag.current=null;setPreview(null);}};window.addEventListener('keydown',cancel);return()=>window.removeEventListener('keydown',cancel);},[]);
   const update=(index:number,key:'time_s'|'power_W',value:string)=>onChange(points.map((point,i)=>i===index?{...point,[key]:Number(value)}:point));
-  return <details className="thermal-power-curve"><summary>功率时间曲线</summary>
-    {!points.length?<button className="button" disabled={disabled||!(power>0)} onClick={()=>onChange([{time_s:0,power_W:power},{time_s:Math.max(1,end),power_W:power}])}>启用曲线（沿用当前功率）</button>:<>
+  return <div className="thermal-power-curve ui-stack"><h4>功率时间曲线</h4>
+    {!points.length?<div className="ui-actions"><button className="button" disabled={disabled||!(power>0)} onClick={()=>onChange([{time_s:0,power_W:power},{time_s:Math.max(1,end),power_W:power}])}>启用曲线（沿用当前功率）</button></div>:<>
       <svg viewBox="0 0 420 165" role="img" aria-label="可拖动的热源功率时间曲线" className="thermal-power-plot"
         onPointerMove={event=>{
           const active=drag.current;if(!active)return;const matrix=event.currentTarget.getScreenCTM();if(!matrix)return;
@@ -27,12 +28,12 @@ export function ThermalPowerCurve({points,power,end,duration,disabled,onChange}:
         <text x={0} y={15} fill="currentColor" fontSize={10}>{maximum.toFixed(1)} W</text>
       </svg>
       <div className="thermal-curve-table">{points.map((point,i)=><div key={i}>
-        <label>时刻 s<input aria-label={'曲线时刻 '+(i+1)} type="number" min={0} step="any" value={point.time_s} disabled={disabled} onChange={e=>update(i,'time_s',e.target.value)}/></label>
-        <label>功率 W<input aria-label={'曲线功率 '+(i+1)} type="number" min={0} step="any" value={point.power_W} disabled={disabled} onChange={e=>update(i,'power_W',e.target.value)}/></label>
-        <button className="button" disabled={disabled||points.length<=2} onClick={()=>onChange(points.filter((_,j)=>j!==i))} aria-label={'删除曲线点 '+(i+1)}>删除</button>
+        <label className="ui-field">时刻 s<input aria-label={'曲线时刻 '+(i+1)} type="number" min={0} step="any" value={point.time_s} disabled={disabled} onChange={e=>update(i,'time_s',e.target.value)}/></label>
+        <label className="ui-field">功率 W<input aria-label={'曲线功率 '+(i+1)} type="number" min={0} step="any" value={point.power_W} disabled={disabled} onChange={e=>update(i,'power_W',e.target.value)}/></label>
+        <button className="icon-button" title="删除曲线点" disabled={disabled||points.length<=2} onClick={()=>onChange(points.filter((_,j)=>j!==i))} aria-label={'删除曲线点 '+(i+1)}><Trash2 size={14}/></button>
       </div>)}</div>
-      <div className="build-actions"><button className="button" disabled={disabled||points.length>=128} onClick={()=>onChange(insertPowerPoint(points,end))}>增加控制点</button><button className="button" disabled={disabled} onClick={()=>onChange([])}>恢复恒定功率</button></div>
-      <small>拖动控制点调整时间和功率；启停时间仍由热源的开始与结束时刻控制</small>
+      <div className="ui-actions"><button className="button" disabled={disabled||points.length>=128} onClick={()=>onChange(insertPowerPoint(points,end))}>增加控制点</button><button className="button" disabled={disabled} onClick={()=>onChange([])}>恢复恒定功率</button></div>
+      <p className="ui-hint">拖动控制点调整时间和功率；启停仍由开始与结束时间控制。</p>
     </>}
-  </details>;
+  </div>;
 }

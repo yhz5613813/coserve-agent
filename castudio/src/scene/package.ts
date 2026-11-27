@@ -12,7 +12,7 @@ export type PackageMesh = { nodeId: string; definitionId: string; archiveHash: s
 export type ArchiveValidation = { format: PackageInfo['format']; archiveHash: string; sceneRevision: string };
 export type ValidateArchive = (bytes: ArrayBuffer, signal?: AbortSignal) => Promise<ArchiveValidation>;
 export const validateArchiveOnServer: ValidateArchive = async (bytes, signal) => {
-  const response = await fetch('/api/scene-package/validate', { method: 'POST', headers: { 'Content-Type': 'application/octet-stream' }, body: bytes, signal });
+  const response = await fetch('api/scene-package/validate', { method: 'POST', headers: { 'Content-Type': 'application/octet-stream' }, body: bytes, signal });
   const result = await response.json(); if (!response.ok) throw new Error(result.error || '场景校验失败'); return result;
 };
 const decode = new TextDecoder('utf-8', { fatal: true });

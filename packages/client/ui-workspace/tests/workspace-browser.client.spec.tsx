@@ -20,6 +20,7 @@ import type { DirectoryFlowOwnerProps, WorkspaceActionRequest, WorkspaceBrowserP
 import { createWorkspaceShortcutControls } from '../src/client/shortcuts.ts'
 import { createWorkspaceViewStore, FLAT_SESSION_ORDER_KEY } from '../src/client/stores.ts'
 import { UNGROUPED_KEY } from '../src/client/tree.ts'
+import type { SessionSubgroupProvider } from '../src/client/session-subgroups.ts'
 import { WorkspaceBrowser } from '../src/client/rows/WorkspaceBrowser.tsx'
 import { renderMenuButton } from './menu-button.tsx'
 import rowCss from '../src/client/rows/Rows.module.css'
@@ -152,6 +153,7 @@ function mount(overrides: Partial<WorkspaceBrowserProps> = {}) {
     createWorkspace: vi.fn(async () => workspace('created', [])),
     useDirectoryFlow: bindSnapshotSelector({ getSnapshot: () => true, subscribe: () => () => {} }),
     useHostInfo: selector => selector({ home: undefined, isLoopback: true }),
+    useSessionSubgroups: select => select([]),
     renderSlot: renderDirectoryFlowOnly,
     renderFactorySlot: renderMenuButton,
     t,
@@ -827,6 +829,33 @@ describe('WorkspaceBrowser', () => {
     act(() => { b.store.actions.setGroupBy('flat') })
     expect(rendered).not.toHaveBeenCalledWith('sidebar.workspaces.session.menu.item', owner)
     expect(rendered).toHaveBeenCalledWith('sidebar.workspaces.session.row.action', owner)
+  })
+
+  it('captions each registered subgroup run and the trailing ungrouped run inside a Workspace', () => {
+    const parts: Record<string, string> = { 'with-a': 'Bracket', 'with-b': 'Housing' }
+    const providers: readonly SessionSubgroupProvider[] = [{
+      id: 'test.part',
+      groupOf: (session) => {
+        const label = parts[session.id]
+        return label === undefined ? undefined : { key: session.id, label }
+      },
+    }]
+    const items = [summary('plain', 3), summary('with-a', 2), summary('with-b', 1)]
+    mount({
+      useSessions: hook(sessionState(items)),
+      useWorkspaces: hook(workspaceState([workspace('alpha', items.map(item => item.id))])),
+      useSessionSubgroups: select => select(providers),
+    })
+    fireEvent.click(screen.getByText('alpha'))
+    const order = [...document.querySelectorAll('[data-row-key]')].map(node => node.getAttribute('data-row-key'))
+    expect(order).toEqual([
+      'workspace:alpha',
+      'subgroup:alpha:with-a', 'session:with-a',
+      'subgroup:alpha:with-b', 'session:with-b',
+      'subgroup:alpha:', 'session:plain',
+    ])
+    expect(screen.getByText('Bracket')).toBeTruthy()
+    expect(screen.getByText(zh['subgroup.ungrouped'])).toBeTruthy()
   })
 
   it('shows five sessions by default and clears transient show-all when the Workspace collapses', () => {

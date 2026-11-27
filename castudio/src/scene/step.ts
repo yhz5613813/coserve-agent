@@ -85,7 +85,7 @@ export function stepScene(result: StepResult, sourceHash: string, quality: StepQ
 export async function importStep(buffer: ArrayBuffer, options: ImportOptions = {}): Promise<THREE.Group> {
   if (options.signal?.aborted) throw new DOMException('已取消 STEP 预览', 'AbortError');
   return new Promise((resolve, reject) => {
-    const worker = new Worker('/step-preview-worker.js');
+    const worker = new Worker('step-preview-worker.js');
     let settled = false;
     const end = (error?: Error, group?: THREE.Group) => {
       if (settled) return; settled = true; clearTimeout(timer); options.signal?.removeEventListener('abort', abort); worker.terminate();

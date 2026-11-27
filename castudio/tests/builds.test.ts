@@ -47,6 +47,19 @@ test('real Python builds a snapshot, preserves original files and publishes veri
     await assert.rejects(() => f.builds.file(f.id, run.id, 'artifacts/result.txt'), /已变化/);
   } finally { await f.cleanup(); }
 });
+test('a STEP output without solids, shells or curves fails the build instead of publishing an empty part', async () => {
+  const f = await fixture();
+  try {
+    const empty = 'from pathlib import Path\nPath("model.step").write_text("ISO-10303-21;\\nHEADER;\\nENDSEC;\\nDATA;\\n#1 = CARTESIAN_POINT(\'\',(0.,0.,0.));\\nENDSEC;\\nEND-ISO-10303-21;\\n")\n';
+    await fs.writeFile(path.join(f.workspace, 'empty.py'), empty);
+    const failed = await finish(f.builds, f.id, (await f.builds.start(f.id, 'empty.py', empty)).id);
+    assert.equal(failed.state, 'failed'); assert.match(failed.error!, /model\.step 不含任何实体.*synchronize/); assert.deepEqual(failed.artifacts, []);
+    const solid = 'from pathlib import Path\nPath("model.step").write_text("DATA;\\n#15 = MANIFOLD_SOLID_BREP(\'\',#16);\\nENDSEC;\\n")\n';
+    await fs.writeFile(path.join(f.workspace, 'solid.py'), solid);
+    const built = await finish(f.builds, f.id, (await f.builds.start(f.id, 'solid.py', solid)).id);
+    assert.equal(built.state, 'succeeded', built.error); assert.deepEqual(built.artifacts.map(a => a.path), ['model.step']);
+  } finally { await f.cleanup(); }
+});
 test('failed and cancelled processes cannot replace project outputs; project locks and stale source are enforced', async () => {
   const f = await fixture();
   try {
@@ -57,7 +70,7 @@ test('failed and cancelled processes cannot replace project outputs; project loc
     assert.equal(failed.state, 'failed'); assert.match(failed.log, /deliberate failure/); await assert.rejects(() => f.builds.publish(f.id, bad.id), /成功产物/);
     const slow = 'import time\nprint("started",flush=True)\ntime.sleep(60)\n'; await fs.writeFile(path.join(f.workspace, 'slow.py'), slow);
     const running = await f.builds.start(f.id, 'slow.py', slow);
-    await assert.rejects(() => f.builds.start(f.id, 'fail.py', failure), /项目正在修改/);
+    await assert.rejects(() => f.builds.start(f.id, 'fail.py', failure), /项目正在构建/);
     const until = Date.now() + 20000;
     while (!(await f.builds.read(f.id, running.id)).log.includes('started') && Date.now() < until) await new Promise(r => setTimeout(r, 100));
     assert.match((await f.builds.read(f.id, running.id)).log, /started/);
@@ -71,9 +84,9 @@ test('interrupted records are recovered without publishing partial workspace fil
   const f = await fixture();
   try {
     const id = '12345678-1234-1234-1234-123456789abc';
-    await fs.mkdir(path.join(f.root, 'projects', f.id, 'builds', id), { recursive: true });
+    await fs.mkdir(path.join(f.store.projectRoot(f.id), 'builds', id), { recursive: true });
     assert.deepEqual(await f.builds.list(f.id), [], 'a newly created run directory is not visible until its initial record is committed');
-    await jsonWrite(path.join(f.root, 'projects', f.id, 'builds', id, 'run.json'), { id, source: 'model.py', sourceHash: '', executable: python, createdAt: new Date().toISOString(), state: 'running', log: 'partial', truncated: false, artifacts: [] });
+    await jsonWrite(path.join(f.store.projectRoot(f.id), 'builds', id, 'run.json'), { id, source: 'model.py', sourceHash: '', executable: python, createdAt: new Date().toISOString(), state: 'running', log: 'partial', truncated: false, artifacts: [] });
     await f.builds.recover(); assert.equal((await f.builds.read(f.id, id)).state, 'interrupted'); await assert.rejects(() => f.builds.publish(f.id, id), /成功产物/);
   } finally { await f.cleanup(); }
 });

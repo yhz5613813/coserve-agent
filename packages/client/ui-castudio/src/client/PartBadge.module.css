@@ -1,0 +1,14 @@
+/* A compact, non-interactive label sized to the Session row's trailing details. */
+.badge {
+  overflow: hidden;
+  flex: 0 1 auto;
+  max-width: 72px;
+  padding: 0 4px;
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: var(--dsw-radius-sm);
+  font-size: 11px;
+  line-height: 16px;
+  color: var(--dsw-alias-label-tertiary);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

@@ -106,7 +106,7 @@ Read these pages when the package-level contract is not enough. They move from t
 
 #### What the model sees
 
-On each turn whose CAStudio state changed, one source-tagged context message with the header and body below. `<project-list>` is one `- "<name>" — id <id>, workspace <path>; CAD skill guide: <path>\.agents\skills\castudio\SKILL.md` line per project, sorted by id and capped at `maxProjects`. `<workbench-list>` appears only while at least one workbench viewport is connected.
+On each turn whose CAStudio state changed, one source-tagged context message with the header and body below. `<project-list>` is one `- "<name>" — id <id>, workspace <path>; CAD skill guide: <path>/.agents/skills/castudio/SKILL.md` line per project, sorted by id and capped at `maxProjects`. The guide path uses backslashes when `<path>` contains backslashes and no forward slash, and forward slashes otherwise. `<workbench-list>` appears only while at least one workbench viewport is connected; each entry carries a `Project / Part: "<project>" / "<part name>" (<slug>) — part files are in <location>; model paths are relative to it` line, where `<location>` is the workspace root for part `default` (also assumed when the page reports no part) and `parts/<slug>/ under the workspace root` otherwise, and a `Meshes: <n> total` line counting the viewport's meshes. A part switch changes the stable state and re-injects the reading.
 
 ##### Changed-turn reading
 

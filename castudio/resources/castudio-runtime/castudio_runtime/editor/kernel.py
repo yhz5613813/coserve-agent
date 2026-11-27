@@ -30,6 +30,7 @@ import sys
 import threading
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 from pathlib import Path
 from typing import Callable
@@ -38,6 +39,9 @@ import websockets
 
 SESSION_ID = "sca-runtime"
 _TRACE = bool(os.environ.get("SCA_EDITOR_TRACE"))
+# marimo listens on 127.0.0.1; plain urlopen would route through http_proxy or,
+# on Windows, the registry system proxy.
+_LOCAL = urllib.request.build_opener(urllib.request.ProxyHandler({}))
 
 
 class KernelError(RuntimeError):
@@ -123,6 +127,8 @@ class MarimoKernel:
         instantiate the notebook (runs all cells top-to-bottom)."""
         self._ensure_lazy_config()
         env = dict(os.environ)
+        # Offline installs: marimo otherwise queries PyPI for updates at startup.
+        env["MARIMO_SKIP_UPDATE_CHECK"] = "1"
         log_path = self.workspace / ".sca-editor" / "marimo-kernel.log"
         log_path.parent.mkdir(parents=True, exist_ok=True)
         self._log_file = log_path.open("ab")
@@ -145,7 +151,7 @@ class MarimoKernel:
             if self._process.poll() is not None:
                 raise KernelError(f"marimo exited with code {self._process.returncode}")
             try:
-                with urllib.request.urlopen(f"{self.marimo_url}/api/sessions", timeout=2) as resp:
+                with _LOCAL.open(f"{self.marimo_url}/api/sessions", timeout=2) as resp:
                     resp.read()
                 break
             except (urllib.error.URLError, OSError):
@@ -180,7 +186,7 @@ class MarimoKernel:
 
     def _fetch_token(self) -> str:
         """The skew-protection token ships in the marimo homepage HTML."""
-        with urllib.request.urlopen(f"{self.marimo_url}/", timeout=5) as resp:
+        with _LOCAL.open(f"{self.marimo_url}/", timeout=5) as resp:
             html = resp.read().decode("utf-8", "replace")
         match = re.search(r'"serverToken":\s*"([^"]+)"', html)
         if match is None:
@@ -197,22 +203,25 @@ class MarimoKernel:
         silently dies and every later edit/run becomes a no-op.
         """
 
+        connected = threading.Event()
+        failure: list[BaseException] = []
+
         def run() -> None:
             import asyncio
 
             async def main() -> None:
-                uri = (
-                    f"ws://127.0.0.1:{self.marimo_port}/ws"
-                    f"?session_id={SESSION_ID}&file_key={self.notebook}"
-                )
+                query = urllib.parse.urlencode({"session_id": SESSION_ID, "file_key": str(self.notebook)})
+                uri = f"ws://127.0.0.1:{self.marimo_port}/ws?{query}"
                 while not self._stop.is_set():
                     try:
-                        async with websockets.connect(uri, max_size=None) as ws:
+                        async with websockets.connect(uri, max_size=None, proxy=None) as ws:
+                            connected.set()
                             async for message in ws:
                                 self._on_message(message)
-                    except Exception:
+                    except Exception as exc:
                         if self._stop.is_set():
                             return
+                        failure[:] = [exc]
                         # marimo restarted; re-hold the same session id.
                         await asyncio.sleep(1.0)
 
@@ -220,6 +229,10 @@ class MarimoKernel:
 
         self._ws_thread = threading.Thread(target=run, name="marimo-bridge-ws", daemon=True)
         self._ws_thread.start()
+        # The first handshake must succeed; start() raising makes the kernel state "failed".
+        if not connected.wait(30.0):
+            reason = f": {failure[0]!r}" if failure else ""
+            raise KernelError(f"marimo session WebSocket did not connect{reason}")
         time.sleep(1.0)
 
     def session_exists(self) -> bool:
@@ -229,7 +242,7 @@ class MarimoKernel:
         asked while a cell runs.
         """
         try:
-            with urllib.request.urlopen(f"{self.marimo_url}/api/sessions", timeout=5) as response:
+            with _LOCAL.open(f"{self.marimo_url}/api/sessions", timeout=5) as response:
                 return SESSION_ID in json.loads(response.read())
         except (urllib.error.URLError, OSError, ValueError):
             return False
@@ -660,7 +673,7 @@ class MarimoKernel:
             method="POST",
         )
         result: dict = {"success": None, "output": "", "log": ""}
-        with urllib.request.urlopen(request, timeout=timeout) as response:
+        with _LOCAL.open(request, timeout=timeout) as response:
             event = ""
             for raw in response:
                 line = raw.decode("utf-8", "replace").rstrip("\r\n")
@@ -694,7 +707,7 @@ class MarimoKernel:
         request = urllib.request.Request(
             f"{self.marimo_url}{path}", data=body, headers=headers, method="POST"
         )
-        with urllib.request.urlopen(request, timeout=timeout) as response:
+        with _LOCAL.open(request, timeout=timeout) as response:
             data = response.read()
         return json.loads(data) if data else {}
 
@@ -705,11 +718,12 @@ def _driver(inner: str) -> str:
 
 
 def _free_port(start: int) -> int:
-    for port in range(start, start + 32):
+    """A free loopback port near *start* (at most 65535), else one the OS picks."""
+    for port in [*range(start, min(start + 32, 65536)), 0]:
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
             try:
                 sock.bind(("127.0.0.1", port))
             except OSError:
                 continue
-            return port
-    raise KernelError(f"no free port at or above {start}")
+            return sock.getsockname()[1]
+    raise KernelError(f"no free loopback port at or above {start}")

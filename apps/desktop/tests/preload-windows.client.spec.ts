@@ -5,7 +5,6 @@ import { syncWindowsAppearance } from '../src/preload-windows.ts'
 
 const send = vi.hoisted(() => vi.fn())
 vi.mock('electron', () => ({ ipcRenderer: { send } }))
-vi.mock('../src/preload-menu.ts', () => ({ installWindowsMenu: () => ({ update: vi.fn(), dispose: vi.fn() }) }))
 
 afterEach(() => {
   window.dispatchEvent(new Event('pagehide'))
@@ -42,7 +41,7 @@ it('synchronizes live language and palette changes and stops observing a closed 
   expect(send).not.toHaveBeenCalled()
   expect(document.documentElement.hasAttribute('data-windows-titlebar')).toBe(true)
   window.dispatchEvent(new Event('DOMContentLoaded'))
-  expect(document.documentElement.style.getPropertyValue('--dsh-windows-titlebar-height')).toBe('40px')
+  expect(document.documentElement.style.getPropertyValue('--dsh-windows-titlebar-height')).toBe('32px')
   expect(send).toHaveBeenLastCalledWith(DESKTOP_IPC.windowsAppearance, 'en', 'rgba(255, 255, 255, 1)', 'rgba(0, 0, 0, 1)')
   document.documentElement.lang = 'zh-CN'
   document.body.setAttribute('data-ds-dark-theme', '')

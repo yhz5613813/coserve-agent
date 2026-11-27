@@ -25,9 +25,10 @@ export interface DesktopWelcomeBackend {
   readLocalePreference(): Promise<string | null>
   /**
    * @param apiKey - User-entered official provider key.
+   * @param baseURL - User-entered endpoint, written to the official provider's `baseURL` before the key; absent keeps the configured one.
    * @returns A safe write outcome without provider diagnostics.
    */
-  save(apiKey: string): Promise<{ ok: boolean }>
+  save(apiKey: string, baseURL?: string): Promise<{ ok: boolean }>
 }
 
 function record(value: unknown): value is Record<string, unknown> {
@@ -132,11 +133,14 @@ export function connectDesktopWelcome(
       if (!record(settings) || !Array.isArray(settings.namespaces)) throw new Error('desktop welcome: missing settings namespaces')
       return localePreference(settings.namespaces)
     },
-    async save(apiKey) {
+    async save(apiKey, baseURL) {
       if (!/^[\x21-\x7e]+$/.test(apiKey)) return { ok: false }
       try {
         const { ref } = await settingsAndReference()
         if (ref === undefined) return { ok: false }
+        if (baseURL !== undefined) {
+          await invoke({ namespace: 'settings', method: 'mutate', args: { ns: 'llm-deepseek', ops: [{ op: 'set', path: ['baseURL'], value: baseURL }], expectedRevision: undefined } })
+        }
         await invoke({ namespace: 'credentials', method: 'set', args: { ref, value: apiKey } })
         return { ok: true }
       } catch {

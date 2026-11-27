@@ -7,6 +7,9 @@ import {Store,jsonWrite} from '../server/storage.js';
 import {Events} from '../server/events.js';
 import {ThermalEditor} from '../server/thermal-editor.js';
 import {ThermalResource} from '../server/thermal-resource.js';
+import {createApp} from '../server/app.js';
+import http from 'node:http';
+import type {AddressInfo} from 'node:net';
 
 test('inspection shares the thermal budget and rejects paths without leaving the project locked',async()=>{
   const root=await fs.mkdtemp(path.join(os.tmpdir(),'thermal-editor-'));
@@ -26,6 +29,26 @@ test('inspection shares the thermal budget and rejects paths without leaving the
     await editor.recover();assert.equal((await editor.read(project.id,id)).state,'interrupted');
     const other=await store.createProject('other');await assert.rejects(()=>editor.read(other.id,id),/不存在/);
   }finally{await editor.dispose();await fs.rm(root,{recursive:true,force:true,maxRetries:5,retryDelay:100});}
+});
+
+test('without thermal-runtime.json or STUDIO_THERMAL_PYTHON the thermal component reports not installed',async()=>{
+  const previous=process.env.STUDIO_THERMAL_PYTHON;delete process.env.STUDIO_THERMAL_PYTHON;
+  const root=await fs.mkdtemp(path.join(os.tmpdir(),'thermal-missing-'));
+  const {app,store,events}=await createApp(root);const project=await store.createProject('missing');
+  const editor=new ThermalEditor(store,new Events());
+  const server=http.createServer(app);await new Promise<void>(ok=>server.listen(0,'127.0.0.1',()=>ok()));
+  const runtime=()=>fetch(`http://127.0.0.1:${(server.address() as AddressInfo).port}/api/thermal/runtime`).then(r=>r.json());
+  try{
+    await fs.writeFile(path.join(store.workspace(project.id),'model.step'),'solid');
+    await assert.rejects(()=>editor.start(project.id,{source:'model.step',units:'mm'}),(e:any)=>e.status===422&&/热仿真组件未安装/.test(e.message));
+    assert.deepEqual(await fs.readdir(store.projectRoot(project.id)).then(names=>names.includes('thermal-inspections')),false);
+    assert.deepEqual(await runtime(),{executable:'',device:'cpu',configured:false,error:'热仿真组件未安装'});
+    await jsonWrite(path.join(root,'thermal-runtime.json'),{executable:'/opt/thermal/python',auto:true});
+    assert.deepEqual(await runtime(),{executable:'/opt/thermal/python',auto:true,device:'cpu',configured:true});
+  }finally{
+    if(previous!==undefined)process.env.STUDIO_THERMAL_PYTHON=previous;
+    events.dispose();await editor.dispose();server.close();await fs.rm(root,{recursive:true,force:true,maxRetries:5,retryDelay:100});
+  }
 });
 
 test('real inspection resolves physical area and rejects stale or rewritten evidence',{skip:!process.env.STUDIO_THERMAL_TEST_PYTHON},async()=>{

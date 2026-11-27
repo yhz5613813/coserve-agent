@@ -1,6 +1,7 @@
 /* The native editor retains ownership; this source alone gets an attachment-like surface. */
 .reference,
-:global([data-composer-chip="castudio-selection"]) {
+:global([data-composer-chip="castudio-selection"]),
+:global([data-composer-chip="castudio-part"]) {
   display: inline-flex;
   align-items: center;
   max-width: 240px;
@@ -12,7 +13,8 @@
   vertical-align: baseline;
 }
 
-:global([data-composer-chip="castudio-selection"]) > span {
+:global([data-composer-chip="castudio-selection"]) > span,
+:global([data-composer-chip="castudio-part"]) > span {
   min-width: 0;
   color: var(--dsw-alias-label-primary);
 }

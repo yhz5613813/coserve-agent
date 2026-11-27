@@ -23,6 +23,7 @@ import type {} from '@deepseek-ai/dsh-client-ui-layout/client'
 import type { DraftInitializationOptions } from '@deepseek-ai/dsh-client-ui-conversation/client'
 import type { RowToast } from './contract/slots.ts'
 import { pinOrderAccounts, pinOrderSource } from './pin-order.ts'
+import { SessionSubgroupRegistry } from './session-subgroups.ts'
 import type { WorkspaceViewStoreActions } from './stores.ts'
 
 interface MainSelection {
@@ -144,6 +145,8 @@ export interface UiWorkspace {
    * @returns idempotent disposer owned by the caller's Cordis fiber.
    */
   whenAccess(workspaceId: WorkspaceId, action: RemoteEndpoint, callback: () => AccessEffect): () => void
+  /** Providers that sub-group each Workspace's Sessions in the grouped browser views. */
+  readonly sessionSubgroups: SessionSubgroupRegistry
 }
 
 declare module '@deepseek-ai/cordis' {
@@ -176,6 +179,7 @@ class UiWorkspaceService extends Service implements UiWorkspace {
   )
   private mainReference: SessionReference | undefined
   private restorationNavigation: AbortSignal | undefined
+  readonly sessionSubgroups: SessionSubgroupRegistry
 
   /**
    * @param ctx - Client root Context.
@@ -194,6 +198,7 @@ class UiWorkspaceService extends Service implements UiWorkspace {
     private readonly notify: (toast: RowToast) => void,
   ) {
     super(ctx, 'uiWorkspace')
+    this.sessionSubgroups = new SessionSubgroupRegistry(ctx)
     ctx.effect(() => {
       const stop = this.watchNavigation()
       return () => {

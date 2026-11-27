@@ -2,7 +2,7 @@ import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from 're
 import { AlertCircle, Box, LoaderCircle, RotateCcw, Play, Pause, Video, Maximize2, Minimize2, Download } from 'lucide-react';
 import { CadRenderer, type MeshInfo, type Selection, type ViewOptions } from '../scene/renderer';
 import { createDemo } from '../scene/demo';
-import { loadModel } from '../scene/loaders';
+import { loadAssembly, loadModel } from '../scene/loaders';
 import type { StepQuality } from '../scene/step';
 import type { PackageInfo } from '../scene/package';
 import type { ReviewAnchor } from '../../shared/types';
@@ -11,7 +11,7 @@ import type { MeshMetrics } from '../../shared/measurements';
 import type { MotorState } from '../scene/motor-motion';
 import type { ViewportState } from '../../shared/viewport';
 import '../motor-motion.css';
-export type ViewportHandle = { fit: (view?: 'iso' | 'top' | 'front' | 'right') => void; snapshot: () => void; snapshotData: () => string | null; state: () => { camera: ViewportState['camera'] }; select: (id: string | null) => void; selectFace: (id: string, face: number) => boolean; visible: (id: string, visible: boolean) => void; locateReview: (anchor: ReviewAnchor) => { meshId?: string; error?: string }; measure: (anchor: ReviewAnchor, signal: AbortSignal) => Promise<MeshMetrics> };
+export type ViewportHandle = { fit: (view?: 'iso' | 'top' | 'front' | 'right') => void; snapshot: () => void; snapshotData: () => string | null; state: () => { camera: ViewportState['camera'] }; select: (id: string | null) => void; selectFace: (id: string, face: number) => boolean; visible: (id: string, visible: boolean) => void; locateReview: (anchor: ReviewAnchor) => { meshId?: string; error?: string }; measure: (anchor: ReviewAnchor, signal: AbortSignal) => Promise<MeshMetrics>; exportModel: (format: 'glb' | 'stl' | 'obj') => Promise<Blob> };
 type Props = { appearance?: { background: string; dark: boolean }; url?: string; name?: string; demo?: boolean; projectId?: string; options: ViewOptions; onMeshes?: (meshes: MeshInfo[]) => void; onSelection?: (selection: Selection | null) => void; onPackage?: (info: PackageInfo | null) => void; onPreview?: (state: PreviewState) => void; label?: string };
 export const Viewport = forwardRef<ViewportHandle, Props>(function Viewport({ appearance, url, name, demo, projectId, options, onMeshes, onSelection, onPackage, onPreview, label }, ref) {
   const host = useRef<HTMLDivElement>(null), engine = useRef<CadRenderer | null>(null);
@@ -22,7 +22,7 @@ export const Viewport = forwardRef<ViewportHandle, Props>(function Viewport({ ap
   const [motor,setMotor]=useState<MotorState|null>(null),[cinema,setCinema]=useState(false),[saving,setSaving]=useState(false),[recordMessage,setRecordMessage]=useState(''),[recordUrl,setRecordUrl]=useState('');
   const [progress, setProgress] = useState('正在载入几何'), [quality, setQuality] = useState<StepQuality>('standard'), [retry, setRetry] = useState(0);
   const cancel = useRef<AbortController | null>(null), isStep = /\.(step|stp)$/i.test(name || '');
-  useImperativeHandle(ref, () => ({ fit: view => engine.current?.fit(view), measure: (anchor, signal) => engine.current ? engine.current.measure(anchor, signal) : Promise.reject(new Error('视口尚未就绪')), snapshot: () => { const link = document.createElement('a'); link.download = 'cad-viewport.png'; link.href = engine.current?.snapshot() || ''; link.click(); }, snapshotData: () => engine.current?.snapshot() ?? null, state: () => ({ camera: engine.current?.cameraState() ?? null }), select: id => engine.current?.select(id), selectFace: (id, face) => engine.current?.selectFace(id, face) ?? false, visible: (id, visible) => engine.current?.setVisible(id, visible), locateReview: anchor => engine.current?.locateReview(anchor) || { error: '视口尚未就绪' } }), []);
+  useImperativeHandle(ref, () => ({ fit: view => engine.current?.fit(view), exportModel: format => engine.current ? engine.current.exportModel(format) : Promise.reject(new Error('视口尚未就绪')),measure: (anchor, signal) => engine.current ? engine.current.measure(anchor, signal) : Promise.reject(new Error('视口尚未就绪')), snapshot: () => { const link = document.createElement('a'); link.download = 'cad-viewport.png'; link.href = engine.current?.snapshot() || ''; link.click(); }, snapshotData: () => engine.current?.snapshot() ?? null, state: () => ({ camera: engine.current?.cameraState() ?? null }), select: id => engine.current?.select(id), selectFace: (id, face) => engine.current?.selectFace(id, face) ?? false, visible: (id, visible) => engine.current?.setVisible(id, visible), locateReview: anchor => engine.current?.locateReview(anchor) || { error: '视口尚未就绪' } }), []);
   useEffect(() => {
     try { engine.current = new CadRenderer(host.current!, s => callbacks.current.onSelection?.(s),setMotor); setReady(true); }
     catch (e) { setError(`无法创建三维视口：${(e as Error).message}`); }
@@ -39,7 +39,12 @@ export const Viewport = forwardRef<ViewportHandle, Props>(function Viewport({ ap
       try {
         let group;
         if (demo && !url) group = createDemo();
-        else { const response = await fetch(url!, { signal: controller.signal }); if (!response.ok) throw new Error('模型文件读取失败'); group = await loadModel(name || 'model.glb', await response.arrayBuffer(), { signal: controller.signal, quality, progress: text => { if (!cancelled) setProgress(text); } }); }
+        else {
+          const response = await fetch(url!, { signal: controller.signal }); if (!response.ok) throw new Error('模型文件读取失败');
+          const options = { signal: controller.signal, quality, progress: (text: string) => { if (!cancelled) setProgress(text); } };
+          // `url` of an assembly is its GET /assembly view, whose components carry their own file URLs.
+          group = name === 'assembly.json' ? await loadAssembly(await response.json(), options) : await loadModel(name || 'model.glb', await response.arrayBuffer(), options);
+        }
         if (cancelled || controller.signal.aborted) { group.traverse(o => { const object = o as { geometry?: { dispose(): void }; material?: { dispose(): void } | { dispose(): void }[] }; object.geometry?.dispose(); if (object.material) (Array.isArray(object.material) ? object.material : [object.material]).forEach(m => m.dispose()); }); if (!cancelled) { setError('预览已取消，可点击重试'); callbacks.current.onPreview?.({ url, status: 'error', error: '预览已取消' }); } return; }
         const meshes = engine.current!.setModel(group);
         if (appearanceRef.current) engine.current!.setAppearance(appearanceRef.current.background, appearanceRef.current.dark);
@@ -58,9 +63,9 @@ export const Viewport = forwardRef<ViewportHandle, Props>(function Viewport({ ap
     setSaving(true);setRecordMessage('正在录制 Studio 视口…');setRecordUrl('');
     try {
       const video=await engine.current.recordMotor();setRecordMessage('正在保存到项目…');
-      const response=await fetch(`/api/projects/${encodeURIComponent(projectId)}/motor-recordings`,{method:'POST',headers:{'Content-Type':'video/webm'},body:video});
+      const response=await fetch(`api/projects/${encodeURIComponent(projectId)}/motor-recordings`,{method:'POST',headers:{'Content-Type':'video/webm'},body:video});
       const result=await response.json();if(!response.ok)throw new Error(result.error||'保存失败');
-      setRecordUrl(`/api/projects/${encodeURIComponent(projectId)}/file?path=${encodeURIComponent(result.path)}`);setRecordMessage('视频已保存到项目文件');
+      setRecordUrl(`api/projects/${encodeURIComponent(projectId)}/file?path=${encodeURIComponent(result.path)}`);setRecordMessage('视频已保存到项目文件');
     } catch(e){setRecordMessage((e as Error).message);}finally{setSaving(false);}
   }
   return <div className={`viewport ${cinema&&motor?'motor-cinema':''}`}><div className="canvas-host" ref={host}/>{label && <span className="viewport-label">{label}</span>}
@@ -76,7 +81,7 @@ export const Viewport = forwardRef<ViewportHandle, Props>(function Viewport({ ap
       {recordMessage&&<span role="status" className={saving||recordUrl?'motor-sr-only':'motor-record-error'}>{recordMessage}</span>}
     </>}
     {!url && !demo && <div className="viewport-empty"><Box size={32}/><strong>选择参考模型</strong><span>在文件面板中将模型设为参考</span></div>}
-    {isStep && <div className="step-preview-tools"><span>STEP · mm</span><select aria-label={`${label || '当前'} STEP 预览精度`} value={quality} onChange={e => setQuality(e.target.value as StepQuality)}><option value="draft">快速</option><option value="standard">标准</option><option value="fine">精细</option></select></div>}
+    {isStep && <div className="step-preview-tools"><select aria-label={`${label || '当前'} STEP 预览精度`} title="STEP 预览精度（单位 mm）" value={quality} onChange={e => setQuality(e.target.value as StepQuality)}><option value="draft">快速</option><option value="standard">标准</option><option value="fine">精细</option></select></div>}
     {loading && <div className="viewport-notice"><LoaderCircle className="spin" size={17}/>{progress}<button className="text-button" onClick={() => cancel.current?.abort()}>取消预览</button></div>}
     {error && <div className="viewport-error"><AlertCircle size={22}/><strong>预览暂不可用</strong><p>{error}</p><button className="button" onClick={() => setRetry(n => n + 1)}>重试预览</button></div>}
     <div className="axis-widget"><button title="俯视图" onClick={() => engine.current?.fit('top')} className="axis-z">Z</button><button title="右视图" onClick={() => engine.current?.fit('right')} className="axis-x">X</button><button title="前视图" onClick={() => engine.current?.fit('front')} className="axis-y">Y</button><i/></div>

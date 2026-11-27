@@ -196,9 +196,8 @@ export function SidebarRoot({
     trackEntryClick({ menu_name: 'new_session', position: windowsTitlebar && collapsed ? 'titlebar' : 'sidebar' })
     startSession()
   }
-  // The Windows caption menus occupy the strip to the right of these controls
-  // (that is what --dsh-windows-menu-start reserves), so a right-side bubble
-  // lands under their text. Below the caption is the only clear side.
+  // A right-side bubble would sit inside the Windows caption drag strip;
+  // below the caption keeps it over application content.
   const captionTooltipSide = windowsTitlebar ? 'bottom' : 'right'
   // Freeze the content at its expanded width while it fades out (collapsed
   // && wide): the sliding column then clips it instead of reflowing it. The

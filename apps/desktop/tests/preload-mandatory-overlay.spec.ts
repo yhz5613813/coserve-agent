@@ -49,7 +49,7 @@ function setup() {
 
 it('uses an in-page frame below the caption and reuses it on updates', () => {
   const f = setup()
-  expect(f.host.style.top).toBe('40px')
+  expect(f.host.style.top).toBe('32px')
   expect(f.host.style.bottom).toBe('0px')
   expect(f.host.style.backdropFilter).toBe('')
   expect(f.frame.src).toBe('dsh-app://shell/mandatory-update.html')

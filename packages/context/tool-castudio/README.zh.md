@@ -61,12 +61,16 @@ kind: "package-reference"
 - `select` 按 id 或精确名称选择零件；`select_face` 选择零件上的一个 CAD 面；`visible` 显示或隐藏零件。
 - `options` 合并任意子集的 `edges`、`grid`、`ortho`、`section`（0–100）、`explode`（0–180）与 `mode`（`component`/`face`）。
 - `workspace` 切换 `model`、`parametric`、`structural` 或 `thermal` 标签。
+- `open` 在视口中打开模型文件 `path`（相对目标零件的 workspace）；带 `partSlug` 时先把视口切换到该零件。
+- `panel` 展开或折叠 `viewer`、`editor`、`files` 或 `properties` 面板。
 
-多个工作台连接时必须通过 `project` 指定；恰好一个连接时默认为它；一个都没有时调用失败，并提示模型请用户打开 CAD 工作台标签页。零件参数依据最新上报的网格列表解析：精确 id 优先，然后精确名称；歧义或未知名称会带候选列表报错。
+多个工作台连接时必须通过 `project` 指定；恰好一个连接时默认为它；一个都没有时调用失败，并提示模型请用户打开 CAD 工作台标签页。`part` 参数是网格（视口对象）的 id 或精确名称，依据最新上报的网格列表解析：精确 id 优先，然后精确名称；歧义或未知名称会带候选列表报错。
+
+一个 CAD 项目包含多个零件：零件 `default` 是 workspace 根目录，其余零件位于 `parts/<slug>/`。每个 action 都接受可选的 `partSlug`，并作为命令的 `part` 发送：`open` 时它是要切换到的零件，其他命令时它是调用方预期视口显示的零件，视口显示其他零件时服务以 HTTP 409 拒绝命令。`state` 读取当前显示的任何零件。每个结果都会指明视口显示的零件，取自返回状态（页面未上报时为 `default`）。
 
 ### 模型看到的错误
 
-服务不可达、列表非 200、负载畸形、工作台无响应、命令被拒（透传服务自身的错误文本）、零件名歧义以及缺失的跨字段参数，都会以 `cad_workbench:` 前缀的消息使调用失败，模型可据此修正下一次尝试。
+服务不可达、列表非 200、负载畸形、工作台无响应、命令被拒（透传服务自身的错误文本）、网格名歧义以及缺失的跨字段参数，都会以 `cad_workbench:` 前缀的消息使调用失败，模型可据此修正下一次尝试。命名了 `partSlug` 的命令遇到 409 时，还会提示模型用该 `partSlug` 调用 `open`，或用 `state` 读取当前显示的零件。
 
 -----
 
@@ -97,7 +101,7 @@ kind: "package-reference"
 
 ### 调用机制
 
-`execute` 手工校验每个 action 的字段集合（参数根是开放对象，仅靠 schema 无法拒绝属于其他 action 的字段），列出已连接工作台，解析目标项目，在需要时针对最新状态读取解析 `part` 为网格 id，POST 映射后的 `ViewportCommand`，并返回有界的规范值：项目标识、回显的 action、投影后的视口状态（零件最多 200 行加总数）以及存在时的快照块。
+`execute` 手工校验每个 action 的字段集合（参数根是开放对象，仅靠 schema 无法拒绝属于其他 action 的字段），列出已连接工作台，解析目标项目，在需要时针对最新状态读取解析 `part` 为网格 id，POST 映射后的 `ViewportCommand`（`partSlug` 作为其 `part`），并返回有界的规范值：项目标识、视口显示的零件、回显的 action、投影后的视口状态（零件最多 200 行加总数）以及存在时的快照块。
 
 </details>
 
@@ -122,7 +126,7 @@ kind: "package-reference"
 
 #### 模型看到什么
 
-模型看到生成的 [`cad_workbench` schema](../../../docs/tool-catalog.zh.md#deepseek-aidsh-tool-castudio)：必填的 `action` 枚举（`state`、`snapshot`、`fit`、`select`、`select_face`、`visible`、`options`、`workspace`），以及可选的 `project`、`view`、`part`、`face`、`visible`、`options`、`workspace` 字段，各自带按 action 的说明。描述会说明工作台查看用途与 `project` 的选择规则。
+模型看到生成的 [`cad_workbench` schema](../../../docs/tool-catalog.zh.md#deepseek-aidsh-tool-castudio)：必填的 `action` 枚举（`state`、`snapshot`、`fit`、`select`、`select_face`、`visible`、`options`、`workspace`、`open`、`panel`），以及可选的 `project`、`partSlug`、`view`、`path`、`panel`、`state`、`part`（网格名称或 id）、`face`、`visible`、`options`、`workspace` 字段，各自带按 action 的说明。描述会说明工作台查看用途、零件布局（`default` 是 workspace 根目录，其余位于 `parts/<slug>/`）、`partSlug` 规则与 `project` 的选择规则。
 
 #### Token 影响
 
@@ -136,7 +140,7 @@ kind: "package-reference"
 
 #### 模型看到什么
 
-每次调用渲染一条以 `CAD workbench "<名称>" (id <id>)` 开头的文本结果。`state` 返回标签、模型主题与加载状态、零件总数（零件列表上限 200 行）、选择、显示选项和相机；命令类 action 在服务上报状态时返回 `… applied.` 加同一状态块；`snapshot` 返回 PNG 绝对路径、尺寸、字节数，并提示用 `read_image` 打开。失败渲染为 `Error: cad_workbench: …`，并附修正指引（打开工作台标签页、传 `project`、改用零件 id）。
+每次调用渲染一条以 `CAD workbench "<名称>" (id <id>), part "<零件名称>" (<slug>)` 开头的文本结果。`state` 返回标签、模型主题与加载状态、网格总数（网格列表上限 200 行）、选择、显示选项和相机；命令类 action 在服务上报状态时返回 `… applied.` 加同一状态块；`snapshot` 返回 PNG 绝对路径、尺寸、字节数，并提示用 `read_image` 打开。失败渲染为 `Error: cad_workbench: …`，并附修正指引（打开工作台标签页、传 `project`、改用零件 id）。
 
 #### Token 影响
 

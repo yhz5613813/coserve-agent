@@ -2,14 +2,16 @@ import { createHash, randomUUID } from 'node:crypto';
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
 import type { BuildRun } from '../shared/types.js';
-import { Store, HttpError, jsonRead, jsonWrite, safePath } from './storage.js';
+import { Store, HttpError, jsonRead, jsonWrite, safePath, supportedModels } from './storage.js';
 import { History } from './history.js';
 import { Runtime } from './runtime.js';
 import { Parameters, parameterPath } from './parameters.js';
 import { runProcess } from './process.js';
 import type { Events } from './events.js';
 const digest = (bytes: Buffer) => createHash('sha256').update(bytes).digest('hex');
-const activeState = (run: BuildRun) => ['preparing', 'running'].includes(run.state);
+/** A STEP data section with at least one solid, shell, surface model or curve set; header-only exports have none. */
+const stepGeometry = /=\s*\(?\s*(MANIFOLD_SOLID_BREP|BREP_WITH_VOIDS|FACETED_BREP|SHELL_BASED_SURFACE_MODEL|GEOMETRIC_CURVE_SET)\s*\(/i;
+const activeState =(run: BuildRun) => ['preparing', 'running'].includes(run.state);
 export class Builds {
   private active = new Map<string, { run: BuildRun; controller: AbortController; done: Promise<void> }>();
   readonly runtime: Runtime;
@@ -46,14 +48,14 @@ export class Builds {
     if (!run) throw new HttpError(404, '构建不存在'); return run;
   }
   async recover() {
-    for (const project of await this.store.projects()) for (const run of await this.list(project.id)) if (activeState(run)) {
+    for (const project of await this.store.records()) for (const run of await this.list(project.id)) if (activeState(run)) {
       run.state = 'interrupted'; run.error = '服务在构建期间中断；原项目未被构建产物覆盖，请重新构建'; run.finishedAt = new Date().toISOString(); await this.persist(project.id, run);
     }
   }
   /** Omitted engine preserves the configured CAD runtime; gmsh explicitly uses the thermal geometry environment. */
   async start(project: string, source: unknown, expectedSource: unknown, expectedParameters?: unknown, engine: unknown = 'cadflow') {
     if (engine !== 'cadflow' && engine !== 'gmsh') throw new HttpError(400, '构建引擎必须为 cadflow 或 gmsh');
-    const release = this.store.acquire(project);
+    const release = this.store.acquire(project, '构建');
     let dispatched = false;
     try {
       await this.store.project(project); await this.history.recover(project);
@@ -107,8 +109,11 @@ export class Builds {
           if (!entry.isFile()) throw new Error('构建产物包含特殊文件');
           const stat = await fs.stat(file); total += stat.size;
           if (++files > 10000 || stat.size > 128 * 1024 * 1024 || total > 2 * 1024 ** 3) throw new Error('构建目录超过容量限制');
-          const hash = digest(await fs.readFile(file)), relative = path.relative(workspace, file).split(path.sep).join('/');
-          if (originals.get(relative) !== hash) run.artifacts.push({ path: relative, size: stat.size, hash });
+          const bytes = await fs.readFile(file), hash = digest(bytes), relative = path.relative(workspace, file).split(path.sep).join('/');
+          if (originals.get(relative) === hash) continue;
+          // gmsh writes a header-only STEP without error when the OCC model was not synchronized; CATIA then opens an empty part.
+          if (/\.(step|stp)$/i.test(entry.name) && !stepGeometry.test(bytes.toString('latin1'))) throw new Error(`${relative} 不含任何实体、曲面或曲线（gmsh 需在 gmsh.write 之前调用 gmsh.model.occ.synchronize()）`);
+          run.artifacts.push({ path: relative, size: stat.size, hash });
         }
       };
       await scan(workspace, 0); signal.throwIfAborted(); run.state = 'succeeded';
@@ -138,7 +143,10 @@ export class Builds {
       const finalize = async () => {
         await this.store.touch(project);
         run.publishedRevision = (await this.history.snapshot(project, `构建产物 ${run.source}`)).id;
-        await this.persist(project, run); this.events.emit(project, 'artifacts_changed', {});
+        await this.persist(project, run);
+        // Clients show the published CAD (STEP first) without the user picking it from the file list.
+        const model = run.artifacts.find(a => /\.(step|stp)$/i.test(a.path)) ?? run.artifacts.find(a => supportedModels.test(a.path) && !/\.zip$/i.test(a.path));
+        this.events.emit(project, 'artifacts_changed', model ? { open: `${prefix}/${model.path}` } : {});
         return { path: prefix };
       };
       if (run.published) { if (run.publishedRevision) return { path: run.published }; return await finalize(); }

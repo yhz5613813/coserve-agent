@@ -42,7 +42,7 @@ export function CylinderObjectsPanel(props: CylinderObjectsPanelProps) {
 function CylinderObjectSession(props: CylinderObjectsPanelProps) {
   const { projectId } = props;
   const prefix = useId();
-  const apiBase = '/api/projects/' + encodeURIComponent(projectId) + '/cylinder-objects';
+  const apiBase = 'api/projects/' + encodeURIComponent(projectId) + '/cylinder-objects';
   const [server, setServer] = useState<ObjectState | null>(null);
   const [base, setBase] = useState<Base | null>(null);
   const [edits, setEdits] = useState<CylinderEdits>({});

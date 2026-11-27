@@ -1,6 +1,6 @@
 {
   "name": "@deepseek-ai/dsh-client-ui-castudio",
-  "version": "0.2.2-rc.1",
+  "version": "0.2.2-rc.2",
   "description": "CAD workspace alongside the native DSH conversation and harness",
   "type": "module",
   "main": "lib/index.js",
@@ -41,6 +41,9 @@
     "watch": "tsdown --watch"
   },
   "license": "MIT",
+  "dependencies": {
+    "zod": "4.4.3"
+  },
   "peerDependencies": {
     "@deepseek-ai/dsh-llm": "workspace:*",
     "@deepseek-ai/cordis": "workspace:~",
@@ -73,7 +76,9 @@
     "@deepseek-ai/dsh-api-session-controller": "workspace:*",
     "@deepseek-ai/dsh-api-workspace-controller": "workspace:*",
     "@deepseek-ai/dsh-session": "workspace:*",
+    "@deepseek-ai/dsh-session-projection": "workspace:*",
     "@deepseek-ai/dsh-util-crypto": "workspace:*",
+    "@deepseek-ai/dsh-util-workspace-path": "workspace:*",
     "@deepseek-ai/schemastery": "workspace:~",
     "@deepseek-ai/dsh-subagent": "workspace:*",
     "@deepseek-ai/dsh-jobs": "workspace:*",

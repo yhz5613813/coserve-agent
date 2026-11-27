@@ -22,6 +22,8 @@ test('real pi SDK: model stream → write tool → artifact → answer, session 
     if (JSON.stringify(latestUser).includes('SLOW_TEST')) { slowResponse = res; res.writeHead(200, { 'Content-Type': 'text/event-stream' }); res.write(': connected\n\n'); return; }
     res.writeHead(200, { 'Content-Type': 'text/event-stream' });
     const chunk = (delta: unknown, finish: string | null = null) => res.write(`data: ${JSON.stringify({ id: 'chat-test', object: 'chat.completion.chunk', created: 1, model: 'studio-fixture', choices: [{ index: 0, delta, finish_reason: finish }] })}\n\n`);
+    // Saving the provider first probes text, image and thinking support; each probe needs a plain text reply.
+    if (/Reply with OK only|What colour is this image/.test(JSON.stringify(latestUser))) { chunk({ role: 'assistant', content: 'OK' }); chunk({}, 'stop'); res.end('data: [DONE]\n\n'); return; }
     const wrote = parsed.messages?.some((m: any) => m.role === 'tool');
     chunk({ role: 'assistant' });
     if (!wrote) {
@@ -47,7 +49,8 @@ test('real pi SDK: model stream → write tool → artifact → answer, session 
     await waitIdle(project.id); controller.abort(); await eventReader;
     assert.equal(await fs.readFile(path.join(store.workspace(project.id), 'artifacts', 'pi-verified.txt'), 'utf8'), 'Written by the real pi SDK tool.');
     assert(calls >= 2); assert(JSON.stringify(lastRequest.messages).includes('UNIQUE_PLUGIN_MARKER'));
-    assert.match(JSON.stringify(lastRequest.messages.find((m: any) => m.role === 'system')), /resources.*cadflow/i, 'bundled CadFlow skill is provided without installing a plugin');
+    // A provider whose thinking probe succeeds is treated as a reasoning model, which receives the prompt as a developer message.
+    assert.match(JSON.stringify(lastRequest.messages.find((m: any) => m.role === 'system' || m.role === 'developer')),/resources.*cadflow/i, 'bundled CadFlow skill is provided without installing a plugin');
     assert(eventText.includes('tool_start')); assert(eventText.includes('run_end')); assert(eventText.includes('delta'));
     const revisions = await history.list(project.id);
     assert.equal(revisions[0].kind, 'after-agent'); assert.equal(revisions[1].kind, 'before-agent');
@@ -71,8 +74,8 @@ test('real pi SDK: model stream → write tool → artifact → answer, session 
     assert((await fs.readdir(path.join(store.projectRoot(project.id), 'sessions'))).some(f => f.endsWith('.jsonl')));
     await harness.invalidate(); await plugins.enable('fixture-skill', false);
     assert.equal((await post(`/api/projects/${project.id}/prompt`, { text: 'Confirm the previous file.' })).status, 202); await waitIdle(project.id);
-    assert(!JSON.stringify(lastRequest.messages.find((m: any) => m.role === 'system')).includes('UNIQUE_PLUGIN_MARKER'));
-    assert.match(JSON.stringify(lastRequest.messages.find((m: any) => m.role === 'system')), /resources.*cadflow/i, 'CadFlow remains available when optional extensions are disabled');
+    assert(!JSON.stringify(lastRequest.messages.find((m: any) => m.role === 'system' || m.role === 'developer')).includes('UNIQUE_PLUGIN_MARKER'));
+    assert.match(JSON.stringify(lastRequest.messages.find((m: any) => m.role === 'system' || m.role === 'developer')),/resources.*cadflow/i, 'CadFlow remains available when optional extensions are disabled');
     assert(lastRequest.messages.some((m: any) => m.role === 'tool'), 'pi conversation persisted after session recreation');
     assert.equal((await post(`/api/projects/${project.id}/prompt`, { text: 'SLOW_TEST' })).status, 202);
     for (let i = 0; !slowResponse && i < 100; i++) await sleep(30);

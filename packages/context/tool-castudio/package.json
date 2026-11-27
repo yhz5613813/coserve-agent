@@ -1,7 +1,7 @@
 {
   "name": "@deepseek-ai/dsh-tool-castudio",
   "description": "Model-facing cad_workbench tool for inspecting and operating the live CAStudio CAD workbench",
-  "version": "0.2.2-rc.1",
+  "version": "0.2.2-rc.2",
   "publishConfig": {
     "access": "public"
   },

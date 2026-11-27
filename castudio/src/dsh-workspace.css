@@ -1,203 +1,246 @@
-/* DSH owns the palette and typeface; only the embedded engineering surface uses this treatment. */
-.studio.embedded-workspace.dsh-workspace {
-  --embed-surface: var(--embed-panel);
-  --embed-subtle: var(--embed-muted);
-  --embed-accent: var(--embed-text);
-  --embed-radius: 12px;
-  --embed-control-radius: 8px;
-  --accent: var(--embed-accent);
-  --hover: var(--embed-hover);
-  font-family: var(--embed-font, inherit);
-  font-size: 13px;
-  line-height: 1.5;
-  font-weight: 400;
-  min-height: 0;
-}
+/* Embedded engineering surface (380-560 px iframe in the DSH sidebar).
+   Spec: text 13px, secondary 12px, minimum 11px; icon buttons 26x26, text buttons 26px high with 0 8px padding;
+   radius 6px, 1px borders from --embed-border, accent only for primary/active; spacing 4/6/8/12.
+   Rules are scoped to .embedded-workspace so the plain embed and the DSH harness share them; --embed-* tokens are defined in theme.css and overridden by the host. */
+.studio.embedded-workspace.dsh-workspace { --accent: var(--embed-accent); --hover: var(--embed-hover); font-family: var(--embed-font, inherit); min-height: 0; }
+.studio.embedded-workspace { font-size: 13px; line-height: 1.5; font-weight: 400; }
+.embedded-workspace :is(button, input, select, textarea) { font-family: inherit; }
+.embedded-workspace :is(button, summary) { color: var(--embed-text); }
+.embedded-workspace :is(h1, h2, h3, h4, strong, b) { font-weight: 500; color: var(--embed-text); letter-spacing: normal; }
+.embedded-workspace :is(h1, h2, h3) { font-size: 13px; line-height: 20px; margin: 0; }
+.embedded-workspace h4 { font-size: 12px; line-height: 18px; margin: 8px 0 4px; }
+.embedded-workspace svg { flex-shrink: 0; color: inherit; }
+.embedded-workspace :is(button, a, summary, [role=tab]):focus-visible { outline: 2px solid var(--embed-accent); outline-offset: 1px; }
+.embedded-workspace :is(input, select, textarea):focus-visible { outline: 2px solid var(--embed-accent); outline-offset: -1px; }
+.embedded-workspace :is(button, input, select, textarea):disabled { opacity: .45; cursor: not-allowed; }
+.embedded-workspace :is(input[type=checkbox], input[type=range]) { accent-color: var(--embed-accent); }
+.embedded-workspace a { color: var(--embed-text); text-decoration: underline; text-underline-offset: 2px; }
+.embedded-workspace ::selection { background: var(--embed-active); color: var(--embed-text); }
+.embedded-workspace ::-webkit-scrollbar { width: 8px; height: 8px; }
+.embedded-workspace ::-webkit-scrollbar-thumb { background: color-mix(in srgb, var(--embed-muted) 45%, transparent); border-radius: 8px; }
+.embedded-workspace ::-webkit-scrollbar-thumb:hover { background: color-mix(in srgb, var(--embed-muted) 70%, transparent); }
+.studio.embedded-workspace > .model-workspace { padding: 0; background: var(--embed-bg); }
 
-.dsh-workspace :is(button, input, select, textarea) { font-family: inherit; }
-.dsh-workspace :is(h1, h2, h3, h4, strong, b) { font-weight: 500; color: var(--embed-text); letter-spacing: normal; }
-.dsh-workspace :is(button, summary) { color: var(--embed-text); }
-.dsh-workspace :is(button, a, summary):focus-visible { outline: 2px solid var(--embed-accent); outline-offset: 2px; }
-.dsh-workspace :is(button, input, select, textarea):disabled { opacity: .4; }
-.dsh-workspace svg { flex-shrink: 0; color: inherit; }
-.studio.dsh-workspace > .model-workspace { padding: 0; background: var(--embed-bg); }
+/* Header bar: one row. Tabs are text only so all four labels fit at 380px; narrower than that the tab strip scrolls. */
+.embedded-workspace .embedded-workspace-bar { min-height: 40px; padding: 0 12px; gap: 8px; flex-wrap: nowrap; border-color: var(--embed-border); }
+.embedded-workspace .embedded-workspace-tabs { align-self: stretch; gap: 12px; min-width: 0; overflow-x: auto; scrollbar-width: none; }
+.embedded-workspace .embedded-workspace-tabs button { position: relative; flex-shrink: 0; height: 100%; min-height: 26px; padding: 0 2px; gap: 4px; font-size: 12px; font-weight: 400; white-space: nowrap; border-radius: 0; background: transparent; color: var(--embed-muted); }
+.embedded-workspace .embedded-workspace-tabs button:hover { background: transparent; color: var(--embed-text); }
+.embedded-workspace .embedded-workspace-tabs button[aria-current=page] { background: transparent; color: var(--embed-text); font-weight: 500; }
+.embedded-workspace .embedded-workspace-tabs button[aria-current=page]::after { content: ''; position: absolute; height: 2px; bottom: 0; left: 2px; right: 2px; background: var(--embed-accent); border-radius: 2px; }
+.embedded-workspace .embedded-file-actions { gap: 4px; flex-wrap: nowrap; margin-left: auto; }
+.embedded-workspace .workspace-heading { padding: 0 12px; min-height: 40px; height: 40px; gap: 8px; }
+.embedded-workspace .workspace-heading > div:first-child { flex: 1; min-width: 0; }
+.embedded-workspace .workspace-actions { gap: 4px; flex-shrink: 0; }
+.embedded-selection-context { margin: 0 12px 8px; min-width: 0; }
+.embedded-workspace .embedded-selection-context { padding: 2px 4px 2px 8px; background: var(--embed-surface); }
+.embedded-workspace .embedded-selection-hint { color: var(--embed-subtle); font-size: 11px; }
+.embedded-workspace .embedded-busy { margin: 0 12px 8px; padding: 4px 8px; border-radius: var(--embed-control-radius); font-size: 12px; }
+.embedded-workspace .embedded-project-state { padding: 12px; font-size: 13px; line-height: 1.5; }
 
-.dsh-workspace .embedded-workspace-bar {
-  min-height: 42px;
-  padding: 0 12px;
-  gap: 8px;
-  border-color: var(--embed-border);
+/* Buttons. Text buttons: 26px, 12px, nowrap. Icon buttons: 26x26. Ghost by default; border only on .button. */
+.studio.embedded-workspace :is(.button, .text-button, .compare-button, .geometry-check-tabs button, .file-filters > button) {
+  display: inline-flex; align-items: center; justify-content: center; gap: 4px; box-sizing: border-box;
+  height: 26px; min-height: 26px; min-width: 0; max-width: 100%; padding: 0 8px; overflow: hidden;
+  font-size: 12px; line-height: 1; font-weight: 400; white-space: nowrap; text-overflow: ellipsis;
+  color: var(--embed-text); background: transparent; border: 1px solid transparent; border-radius: var(--embed-control-radius); box-shadow: none;
 }
-.dsh-workspace .embedded-workspace-tabs { align-self: stretch; gap: 12px; }
-.dsh-workspace .embedded-workspace-tabs button {
-  position: relative;
-  min-height: 40px;
-  height: 100%;
-  padding: 0 2px;
-  gap: 5px;
-  font-size: 12px;
-  border-radius: 0;
-  background: transparent;
-  color: var(--embed-muted);
-  font-weight: 400;
+.studio.embedded-workspace :is(button, a).button { background: var(--embed-bg); border-color: var(--embed-border); }
+.studio.embedded-workspace .workspace-actions > button[aria-label="专注工作区"] { display: none; }
+.studio.embedded-workspace :is(.text-button, .compare-button, .geometry-check-tabs button, .file-filters > button) { color: var(--embed-muted); }
+.studio.embedded-workspace .file-filters > button { border-color: var(--embed-border); }
+.studio.embedded-workspace .button.full { width: 100%; height: 26px; }
+.studio.embedded-workspace :is(.icon-button, .tool-button) {
+  display: inline-flex; align-items: center; justify-content: center; box-sizing: border-box; flex-shrink: 0;
+  width: 26px; min-width: 26px; height: 26px; padding: 0; border: 0; border-radius: var(--embed-control-radius); box-shadow: none;
+  background: transparent; color: var(--embed-muted); font-size: 12px; line-height: 1; font-weight: 400;
 }
-.dsh-workspace .embedded-workspace-tabs button[aria-current=page] {
-  background: transparent;
-  color: var(--embed-accent);
-  font-weight: 500;
-}
-.dsh-workspace .embedded-workspace-tabs button[aria-current=page]::after {
-  content: '';
-  position: absolute;
-  height: 2px;
-  bottom: 0;
-  left: 2px;
-  right: 2px;
-  background: currentColor;
-  border-radius: 2px;
-}
-.dsh-workspace .embedded-file-actions { gap: 2px; }
-.dsh-workspace .workspace-heading { padding: 0 12px; min-height: 42px; height: 42px; }
-.dsh-workspace .workspace-heading h1 { font-size: 13px; line-height: 20px; font-weight: 500; }
-.dsh-workspace .workspace-actions { gap: 4px; }
-.dsh-workspace .workspace-actions .cylinder-objects-toggle {
-  height: 28px; padding: 0 8px; font-size: 12px; font-weight: 400;
-  border: 0; border-radius: var(--embed-control-radius);
-  background: transparent; color: var(--embed-text);
-}
-.dsh-workspace .workspace-actions .cylinder-objects-toggle:is(:hover, .active) {
-  background: var(--embed-hover); color: var(--embed-text);
-}
-.dsh-workspace :is(.button, .text-button, .tool-button, .icon-button, .workspace-menu>summary) {
-  border: 0;
-  box-shadow: none;
-  border-radius: var(--embed-control-radius);
-  height: 28px;
-  color: var(--embed-text);
-  background: transparent;
-  font-size: 12px;
-  line-height: 18px;
-  font-weight: 400;
-}
-.dsh-workspace :is(.button, .text-button) { padding: 0 10px; }
-.dsh-workspace :is(.icon-button, .tool-button, .workspace-menu>summary) { width: 28px; min-width: 28px; }
-.dsh-workspace :is(.button, .text-button, .tool-button, .icon-button, .workspace-menu>summary):hover {
-  color: var(--embed-text); background: var(--embed-hover);
-}
-.dsh-workspace :is(.tool-button.active, .button.active, .compare-button.active) {
-  color: var(--embed-text); background: var(--embed-active);
-}
-.dsh-workspace .button.primary {
-  color: var(--embed-primary-text); background: var(--embed-primary);
-}
-.dsh-workspace .selection-mode-tools .tool-button { width: auto; padding: 0 8px; gap: 4px; }
-.dsh-workspace .selection-mode-tools .tool-button > span { font-size: 12px; }
-.dsh-workspace .embedded-selection-context {
-  margin: 0 12px 8px;
-  padding: 4px 8px;
-  border-radius: var(--embed-control-radius);
-  background: var(--embed-surface);
-  color: var(--embed-text);
-  font-size: 12px;
-}
-.dsh-workspace .embedded-selection-hint { color: var(--embed-subtle); font-size: 11px; }
+.studio.embedded-workspace :is(.button, .text-button, .compare-button, .geometry-check-tabs button, .file-filters > button, .icon-button, .tool-button):hover:not(:disabled) { background: var(--embed-hover); color: var(--embed-text); }
+.studio.embedded-workspace :is(.tool-button.active, .compare-button.active, .geometry-check-tabs button[aria-selected=true], .file-filters > button.active, .icon-button.selected, .tool-button.selected, .button.selected) { background: var(--embed-active); color: var(--embed-text); }
+.studio.embedded-workspace :is(.geometry-check-tabs button[aria-selected=true], .file-filters > button.active) { border-color: var(--embed-border); font-weight: 500; }
+.studio.embedded-workspace .button.primary { color: var(--embed-primary-text); background: var(--embed-primary); border-color: transparent; font-weight: 500; }
+.studio.embedded-workspace .button.primary:hover:not(:disabled) { color: var(--embed-primary-text); background: var(--embed-primary); opacity: .88; }
+.studio.embedded-workspace .button.danger { color: var(--embed-primary-text); background: var(--embed-danger); border-color: transparent; font-weight: 500; }
+.studio.embedded-workspace .button.danger:hover:not(:disabled) { color: var(--embed-primary-text); background: var(--embed-danger); opacity: .88; }
+.studio.embedded-workspace .selection-mode-tools .tool-button { width: auto; padding: 0 8px; gap: 4px; }
+.studio.embedded-workspace .selection-mode-tools .tool-button > span { font-size: 12px; }
+.studio.embedded-workspace .tool-group { gap: 2px; border-color: var(--embed-border); }
 
-.dsh-workspace .model-stage { border: 0; border-radius: 0; background: var(--embed-bg); }
-.dsh-workspace .viewport-heading {
-  min-height: 36px; height: 36px; padding: 0 12px;
-  background: var(--embed-bg); border-top: 1px solid var(--embed-border);
-}
-.dsh-workspace .document-tab { height: 34px; font-size: 12px; color: var(--embed-muted); }
-.dsh-workspace .document-tab > span:first-of-type { max-width: 100%; }
-.dsh-workspace .compare-button { font-size: 12px; padding: 0 6px; border-radius: var(--embed-control-radius); }
-.dsh-workspace .viewport-toolbar {
-  min-height: 38px; height: 38px; gap: 8px; padding: 0 12px;
-  background: var(--embed-bg);
-  border-top: 0; border-bottom: 1px solid var(--embed-border);
-}
-.dsh-workspace .tool-group { gap: 2px; border-color: var(--embed-border); }
-.dsh-workspace :is(.viewports, .viewport) { background: var(--embed-surface); }
-.dsh-workspace .canvas-meta {
-  background: var(--embed-panel); color: var(--embed-muted);
-  border: 1px solid var(--embed-border); border-radius: var(--embed-control-radius);
-  padding: 6px 8px; font-size: 11px;
-}
-.dsh-workspace .canvas-meta :is(strong, span, span:first-child) { color: inherit; font-size: inherit; font-weight: 400; }
-.dsh-workspace :is(.viewport-empty, .viewport-error, .viewport-notice, .section-control) {
-  background: var(--embed-panel); color: var(--embed-text); border-color: var(--embed-border);
-  border-radius: var(--embed-radius); box-shadow: none;
-}
-.dsh-workspace :is(.viewport-empty, .viewport-error) :is(p, span) { color: var(--embed-muted); }
+/* Fields: the one field style lives in theme.css (shared primitives); toolbar and compact fields use 26px / 12px. */
+.studio.embedded-workspace input::placeholder, .studio.embedded-workspace textarea::placeholder { color: var(--embed-subtle); }
+.studio.embedded-workspace :is(input[type=checkbox], input[type=radio]) { width: 14px; height: 14px; padding: 0; margin: 0; flex-shrink: 0; }
+.studio.embedded-workspace :is(.part-switcher, .source-bar, .viewport-toolbar, .step-preview-tools, .tree-search, .cylinder-object-input, .review-panel) :is(input:not([type=checkbox]), select) { height: 26px; padding: 0 6px; font-size: 12px; }
+.studio.embedded-workspace .source-bar { gap: 6px; padding: 4px 8px; }
+.studio.embedded-workspace .source-bar select { flex: 1; min-width: 0; }
+.embedded-workspace :is(.field, label) { font-size: 12px; color: var(--embed-muted); }
+.embedded-workspace .field { gap: 4px; margin: 8px 0; }
 
-.dsh-workspace .bottom-dock { background: var(--embed-bg); border-color: var(--embed-border); }
-.dsh-workspace .dock-tabs {
-  height: 38px; gap: 16px; padding: 0 12px; background: var(--embed-bg);
-}
-.dsh-workspace .dock-tabs > button:not(.icon-button) { font-size: 12px; color: var(--embed-muted); gap: 5px; }
-.dsh-workspace .dock-tabs > button.active { color: var(--embed-accent); }
-.dsh-workspace .dock-tabs > button.active::after { background: currentColor; }
-.dsh-workspace :is(.dock-tabs, .tabs) span {
-  background: var(--embed-surface); color: var(--embed-subtle); font-size: 11px;
-}
-.dsh-workspace :is(.artifact-name, .file-size, .file-tree-row, .tree-item, .tree-root) { font-size: 12px; }
-.dsh-workspace :is(.artifact-name small, .file-size, .field small, .small-empty, .empty-state) { color: var(--embed-subtle); }
-.dsh-workspace :is(.artifact-row, .tree-item, .file-tree-row):hover { background: var(--embed-hover); }
-.dsh-workspace :is(.artifact-row.active, .tree-item.selected, .file-tree-row.active) { background: var(--embed-active); color: var(--embed-text); }
-.dsh-workspace :is(.files-dock, .properties-dock, .activity-dock, .source-dock) { background: var(--embed-bg); color: var(--embed-text); }
-.dsh-workspace :is(.properties-dock, .activity-dock) :is(span:not(.eyebrow), small, pre) { color: var(--embed-muted); }
-.dsh-workspace .workspace-content { padding: 12px; background: var(--embed-bg); }
-.dsh-workspace :is(.workspace-content, .modal) :is(input, select, textarea) {
-  padding: 6px 10px; font-size: 13px; line-height: 20px;
-  border: 1px solid var(--embed-border); border-radius: var(--embed-control-radius);
-  background: var(--embed-bg); color: var(--embed-text);
-}
-.dsh-workspace :is(input, select, textarea):focus { outline: 2px solid var(--embed-accent); }
-.dsh-workspace :is(input[type=checkbox], input[type=range]) { accent-color: var(--embed-accent); }
-.dsh-workspace :is(.parametric-panel, .structural-panel, .thermal-panel, .cylinder-object-sidebar) {
-  color: var(--embed-text); font-size: 13px; background: var(--embed-bg); border-color: var(--embed-border);
-}
-.dsh-workspace :is(.parametric-validation, .parametric-session, .parametric-empty, .structural-controls, .structural-controls-body, .structural-metric, .thermal-controls, .thermal-metric) {
-  background: var(--embed-surface) !important; color: var(--embed-text);
-  border-color: var(--embed-border) !important; border-radius: var(--embed-control-radius);
-}
-.dsh-workspace :is(.parametric-panel, .structural-panel, .thermal-panel) :is(button, .button) {
-  font-size: 12px; font-weight: 400; min-height: 28px; padding: 4px 10px;
-  border: 1px solid var(--embed-border); border-radius: var(--embed-control-radius);
-  background: var(--embed-panel); color: var(--embed-text);
-}
-.dsh-workspace :is(.parametric-panel, .structural-panel, .thermal-panel) :is(p, small, label, th, td, .eyebrow):not(.form-error):not([role=alert]) { color: var(--embed-muted); }
-.dsh-workspace :is(.parametric-panel, .structural-panel, .thermal-panel) :is(pre, table, td, th) { border-color: var(--embed-border); }
-.dsh-workspace .thermal-panel { gap: 12px; }
-.dsh-workspace .thermal-panel > :is(section, details) {
-  padding: 14px; background: var(--embed-surface); border-color: var(--embed-border);
-  border-radius: var(--embed-radius); color: var(--embed-text);
-}
-.dsh-workspace .thermal-panel h3 { font-size: 13px; font-weight: 500; color: var(--embed-text); }
-.dsh-workspace .thermal-panel label { font-size: 12px; }
-.dsh-workspace :is(.modal, .workspace-menu-items) {
-  background: var(--embed-panel); border: 1px solid var(--embed-border); border-radius: var(--embed-radius); color: var(--embed-text);
-}
-.dsh-workspace .workspace-menu-items button { border-radius: var(--embed-control-radius); color: var(--embed-text); }
-.dsh-workspace .modal :is(p, label, small) { color: var(--embed-muted); }
-.dsh-workspace .cylinder-objects-panel { background: var(--embed-bg); color: var(--embed-text); }
-.dsh-workspace .cylinder-objects-panel :is(p, summary, label, small, .cylinder-object-field>span, .cylinder-object-input>span) { color: var(--embed-muted); }
-.dsh-workspace .cylinder-objects-panel :is(input, button) {
-  background: var(--embed-panel); color: var(--embed-text);
-  border-color: var(--embed-border); border-radius: var(--embed-control-radius); font-size: 12px;
-}
-.dsh-workspace .cylinder-objects-panel button:hover { background: var(--embed-hover); color: var(--embed-text); }
-.dsh-workspace .cylinder-object-list button.selected { background: var(--embed-active); color: var(--embed-text); }
-.dsh-workspace :is(.cylinder-object-badge, .cylinder-object-job, .cylinder-objects-actions) { background: var(--embed-surface); color: var(--embed-muted); }
-.dsh-workspace .cylinder-objects-panel .cylinder-objects-action-row > button.cylinder-primary {
-  background: var(--embed-primary); color: var(--embed-primary-text); border-color: transparent;
-}
-.dsh-workspace ::-webkit-scrollbar-thumb { background: var(--embed-active); border-radius: 8px; }
-.dsh-workspace ::selection { background: var(--embed-active); color: var(--embed-text); }
+/* Viewport, docks, lists. */
+.embedded-workspace .model-stage { border: 0; border-radius: 0; background: var(--embed-bg); }
+.embedded-workspace .viewport-heading { min-height: 32px; height: 32px; padding: 0 12px; background: var(--embed-bg); border-top: 1px solid var(--embed-border); }
+.embedded-workspace .document-tab { height: 30px; font-size: 12px; color: var(--embed-muted); }
+.embedded-workspace .document-tab > span:first-of-type { max-width: 100%; }
+.embedded-workspace .viewport-toolbar { min-height: 38px; height: 38px; gap: 8px; padding: 0 12px; overflow-x: auto; scrollbar-width: none; background: var(--embed-bg); border-top: 0; border-bottom: 1px solid var(--embed-border); }
+.embedded-workspace .viewport-toolbar::-webkit-scrollbar { display: none; }
+.embedded-workspace :is(.viewports, .viewport) { background: var(--embed-surface); }
+.embedded-workspace .canvas-meta { background: none; color: var(--embed-subtle); border: 0; box-shadow: none; padding: 0; font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: calc(100% - 24px); }
+.embedded-workspace :is(.viewport-empty, .viewport-error, .viewport-notice, .section-control, .step-preview-tools, .viewport-label) { background: var(--embed-panel); color: var(--embed-text); border: 1px solid var(--embed-border); border-radius: var(--embed-radius); box-shadow: none; }
+.embedded-workspace :is(.viewport-empty, .viewport-error) :is(p, span) { color: var(--embed-muted); }
+.embedded-workspace .viewport-notice .text-button { color: var(--embed-text); }
+.embedded-workspace .axis-widget button { font-size: 11px; }
+.embedded-workspace .bottom-dock { background: var(--embed-bg); border-color: var(--embed-border); }
+.embedded-workspace .dock-tabs { height: 38px; gap: 12px; padding: 0 12px; background: var(--embed-bg); }
+.embedded-workspace .dock-tabs > button:not(.icon-button) { font-size: 12px; color: var(--embed-muted); gap: 4px; }
+.embedded-workspace .dock-tabs > button.active { color: var(--embed-text); }
+.embedded-workspace .dock-tabs > button.active::after { background: var(--embed-accent); }
+.embedded-workspace :is(.dock-tabs, .tabs) span { background: var(--embed-surface); color: var(--embed-subtle); font-size: 11px; }
+.embedded-workspace :is(.artifact-name, .file-size, .file-tree-row, .tree-item, .tree-root) { font-size: 12px; }
+.embedded-workspace :is(.file-size, .artifact-name small, .field small, .small-empty, .empty-state, .files-empty p) { color: var(--embed-subtle); font-size: 12px; }
+.embedded-workspace .file-size { font-size: 11px; }
+.embedded-workspace :is(.tree-item, .tree-root, .tree-row, .model-group-heading > button) { color: var(--embed-text); }
+.embedded-workspace :is(.artifact-row, .tree-item, .file-tree-row):hover { background: var(--embed-hover); }
+.embedded-workspace :is(.artifact-row.active, .tree-item.selected, .tree-row.selected, .file-tree-row.active) { background: var(--embed-active); color: var(--embed-text); }
+.embedded-workspace :is(.files-dock, .properties-dock, .activity-dock, .source-dock) { background: var(--embed-bg); color: var(--embed-text); }
+.embedded-workspace :is(.properties-dock, .activity-dock) :is(span:not(.eyebrow), small, pre) { color: var(--embed-muted); font-size: 11px; }
+.embedded-workspace .activity-dock details { font-size: 12px; border-color: var(--embed-border); }
+.embedded-workspace :is(.activity-dock details, .modal pre, .ui-log, .build-log, .revision-code, .scene-feature-detail pre, .cad-inspection-log pre) { background: var(--embed-panel); color: var(--embed-muted); border: 1px solid var(--embed-border); border-radius: var(--embed-control-radius); }
+.embedded-workspace :is(pre, code) { font-size: 11px; line-height: 1.5; }
+.embedded-workspace .workspace-content { padding: 12px; background: var(--embed-bg); border-color: var(--embed-border); }
+.embedded-workspace .parametric-workspace { padding: 12px; }
+.embedded-workspace .no-source { padding: 12px; gap: 8px; }
 
+/* Engineering pages (parametric / structural / thermal) are built from the shared primitives in theme.css; the rules below cover tables, generic cards and secondary panels. */
+.embedded-workspace :is(.parametric-panel, .structural-panel, .thermal-panel, .cylinder-object-sidebar, .assembly-sidebar) { color: var(--embed-text); font-size: 13px; line-height: 1.5; background: var(--embed-bg); border-color: var(--embed-border); }
+.embedded-workspace :is(.modal, .review-panel, .scene-inspector, .cad-inspection-panel, .build-panel) :is(p, small, label, th, .hint, li):not(.form-error):not([role=alert]) { color: var(--embed-muted); line-height: 1.5; }
+.embedded-workspace :is(.modal, .review-panel, .scene-inspector, .cad-inspection-panel, .build-panel) p { margin: 6px 0; font-size: 12px; }
+.embedded-workspace :is(.parametric-panel, .structural-panel, .thermal-panel, .modal) :is(td, dd) { color: var(--embed-text); }
+.embedded-workspace :is(.parametric-panel, .structural-panel, .thermal-panel, .modal) :is(table, td, th, pre) { border-color: var(--embed-border); }
+.embedded-workspace :is(.parametric-panel, .structural-panel, .thermal-panel) th { color: var(--embed-muted); font-weight: 500; }
+.embedded-workspace :is(.parametric-panel, .structural-panel, .thermal-panel, .build-panel, .cad-inspection-panel) :is(table, .cad-table-scroll table) { font-size: 12px; }
+.embedded-workspace :is(.parametric-panel, .structural-panel, .thermal-panel, .build-panel, .cad-inspection-panel) :is(th, td) { padding: 4px 6px; }
+.embedded-workspace :is(.review-compose, .build-panel section, .revision-models, .restore-review, .runtime-card, .environment-note, .plugin-feature, .installed-plugin, .provider-details, .chatgpt-login, .cad-properties, .cad-material-difference, .project-list > button) {
+  background: var(--embed-surface); color: var(--embed-text); border: 1px solid var(--embed-border); border-radius: var(--embed-radius); box-shadow: none;
+}
+.embedded-workspace :is(.review-compose, .build-panel section, .restore-review, .cad-properties, .cad-material-difference) { padding: 8px 12px; }
+.embedded-workspace :is(.build-panel, .cad-inspection-panel) [role=alert], .embedded-workspace .form-error { background: var(--embed-panel); border: 1px solid var(--embed-danger); color: var(--embed-danger); border-radius: var(--embed-control-radius); padding: 4px 8px; font-size: 12px; overflow-wrap: anywhere; }
+.embedded-workspace :is(.positive, .cad-check-ok) { color: var(--embed-text); }
+.embedded-workspace .cad-check-warning { background: var(--embed-panel); color: var(--embed-muted); border: 1px solid var(--embed-border); }
+.embedded-workspace .parametric-frame { min-height: 280px; }
+.studio.embedded-workspace .parametric-templates > button.parametric-template { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; width: 100%; height: auto; max-width: none; padding: 8px 12px; text-align: left; white-space: normal; overflow: visible; background: var(--embed-bg); border: 1px solid var(--embed-border); border-radius: var(--embed-radius); }
+.studio.embedded-workspace .parametric-templates > button.parametric-template:hover:not(:disabled) { background: var(--embed-hover); }
+.studio.embedded-workspace .parametric-templates > button.parametric-template span { color: var(--embed-muted); font-size: 12px; line-height: 1.5; }
+.studio.embedded-workspace .parametric-templates > button.parametric-template .parametric-caps > span { font-size: 11px; line-height: 16px; }
+.embedded-workspace :is(.thermal-scene-views, .build-actions, .build-run-heading) { gap: 6px; margin: 6px 0; }
+.embedded-workspace .thermal-canvas { border-radius: var(--embed-radius); overflow: hidden; }
+
+/* Dialogs and secondary panels. */
+.embedded-workspace .modal-scrim { padding: 8px; background: #00000066; backdrop-filter: none; }
+.embedded-workspace .modal { padding: 12px; max-height: 96dvh; background: var(--embed-panel); border: 1px solid var(--embed-border); border-radius: var(--embed-radius); box-shadow: 0 8px 24px #00000033; color: var(--embed-text); }
+.embedded-workspace .modal > header { margin-bottom: 8px; gap: 8px; }
+.embedded-workspace .modal h2 { display: flex; align-items: center; gap: 6px; }
+.embedded-workspace .modal header p { margin-top: 2px; font-size: 12px; line-height: 1.5; color: var(--embed-muted); }
+.embedded-workspace :is(.modal-scrim, .modal) :is(input:not([type=checkbox]), select, textarea) { background: var(--embed-bg); }
+.embedded-workspace .modal :is(p, label, small) { color: var(--embed-muted); }
+.embedded-workspace .build-panel { gap: 8px; }
+.embedded-workspace .build-panel label { gap: 4px; }
+.embedded-workspace .build-panel :is(input, select) { width: 100%; margin-top: 0; }
+.embedded-workspace .build-panel code { font-size: 11px; margin: 4px 0; }
+.embedded-workspace .build-log { padding: 8px; font: 11px/1.5 Consolas, "SF Mono", monospace; max-height: 200px; }
+.embedded-workspace .build-artifacts a { color: var(--embed-text); padding: 4px 0; gap: 8px; }
+.embedded-workspace .build-artifacts span { color: var(--embed-muted); }
+.embedded-workspace .parameter-grid { gap: 8px; margin-bottom: 8px; }
+.embedded-workspace .parameter-input > span { font-size: 12px; color: var(--embed-muted); }
+.embedded-workspace .parameter-history :is(th, td) { padding: 4px 6px; border-color: var(--embed-border); }
+.embedded-workspace .review-panel, .embedded-workspace .scene-inspector, .embedded-workspace .cad-inspection-panel { font-size: 13px; line-height: 1.5; color: var(--embed-text); }
+.embedded-workspace .review-summary { justify-content: flex-start; gap: 6px; margin: 8px 0; }
+.embedded-workspace .review-summary > strong { flex: 1; min-width: 0; font-size: 12px; }
+.embedded-workspace .review-actions, .embedded-workspace .review-note-actions { gap: 6px; margin: 6px 0; }
+.embedded-workspace .review-note-heading { margin: 0 0 4px; }
+.embedded-workspace .review-compose { margin: 0; }
+.embedded-workspace .review-panel select { margin: 0; }
+.embedded-workspace .review-panel textarea { min-height: 64px; margin: 6px 0; }
+.embedded-workspace .review-note { padding: 8px 0; border-color: var(--embed-border); }
+.embedded-workspace .review-note-heading span, .embedded-workspace .review-muted, .embedded-workspace .review-path { color: var(--embed-muted); font-size: 11px; }
+.embedded-workspace .review-text { line-height: 1.5; color: var(--embed-text); }
+.embedded-workspace :is(.scene-evidence, .scene-children, .scene-feature-detail, .scene-source, .scene-source-editor, .cad-inspection-results, .cad-inspection-panel dl > div) { border-color: var(--embed-border); }
+.embedded-workspace .scene-columns { gap: 8px; }
+.embedded-workspace :is(.scene-node-button, .scene-feature-list > button) { padding: 4px 8px; color: var(--embed-text); font-size: 12px; }
+.embedded-workspace :is(.scene-node-button, .scene-feature-list > button):hover { background: var(--embed-hover); }
+.embedded-workspace :is(.scene-node-button.active, .scene-feature-list > button.active) { background: var(--embed-active); color: var(--embed-text); }
+.embedded-workspace .scene-inspector :is(input:not([type=checkbox]), select) { width: 100%; }
+.embedded-workspace .scene-inputs, .embedded-workspace .scene-span-buttons { gap: 6px; margin: 6px 0; }
+.embedded-workspace .history-modal { padding: 12px; }
+.embedded-workspace .history-save { gap: 6px; margin: 0 0 8px; }
+.embedded-workspace .history-save input { flex: 1; min-width: 80px; }
+.embedded-workspace .history-layout { height: 62vh; border-color: var(--embed-border); border-radius: var(--embed-radius); }
+.embedded-workspace .revision-list { background: var(--embed-bg); border-color: var(--embed-border); padding: 4px; gap: 4px; }
+.embedded-workspace .revision-list > button { padding: 6px 8px; border-radius: var(--embed-control-radius); }
+.embedded-workspace :is(.revision-list > button:hover, .revision-changes > button:hover) { background: var(--embed-hover); }
+.embedded-workspace :is(.revision-list > button.active, .revision-changes > button.active) { background: var(--embed-active); border-color: var(--embed-border); outline: 0; color: var(--embed-text); }
+.embedded-workspace .revision-list strong { color: var(--embed-text); font-size: 12px; line-height: 1.5; }
+.embedded-workspace :is(.revision-kind, .revision-list small, .revision-changes > button > small, .change-status, .history-footnote, .revision-summary p) { font-size: 11px; color: var(--embed-muted); }
+.embedded-workspace .revision-detail { padding: 8px; }
+.embedded-workspace .revision-summary { gap: 8px; margin-bottom: 8px; }
+.embedded-workspace .revision-changes > button { padding: 6px; font-size: 12px; border-color: var(--embed-border); color: var(--embed-text); }
+.embedded-workspace :is(.revision-diff-columns, .revision-diff-columns > div + div, .revision-diff-columns h4) { border-color: var(--embed-border); }
+.embedded-workspace .revision-diff-columns h4 { background: var(--embed-panel); color: var(--embed-muted); }
+.embedded-workspace .revision-models { padding: 8px; font-size: 12px; }
+.embedded-workspace .cad-inspection-inputs { gap: 8px; margin: 8px 0; }
+.embedded-workspace .cad-inspection-inputs label { gap: 4px; font-weight: 400; }
+.embedded-workspace .geometry-check-tabs { gap: 6px; margin: 0 0 8px; padding-bottom: 8px; border-color: var(--embed-border); }
+.embedded-workspace .cad-inspection-panel :is(select, input) { width: 100%; }
+.embedded-workspace .cad-inspection-panel h4 { margin: 6px 0; }
+.embedded-workspace .cad-inspection-panel :is(dt, small, .build-actions > span, .cad-inspection-run > span) { color: var(--embed-muted); font-size: 12px; }
+.embedded-workspace .cad-inspection-panel dl > div { padding: 4px 0; }
+.embedded-workspace .cad-inspection-results { margin-top: 12px; padding-top: 8px; }
+.embedded-workspace .cad-inspection-run { gap: 8px; margin: 8px 0; }
+.embedded-workspace .cad-property-columns { gap: 8px; }
+.embedded-workspace .cad-table-scroll :is(th, td) { border-color: var(--embed-border); }
+.embedded-workspace .step-preview-tools { top: 8px; right: 8px; gap: 6px; padding: 2px 6px; font-size: 11px; }
+.embedded-workspace .step-face-selector > div { gap: 6px; margin-top: 4px; }
+.embedded-workspace .step-face-selector input { width: 64px; }
+.embedded-workspace .step-face-evidence code { font-size: 11px; color: var(--embed-muted); }
+.embedded-workspace :is(.hint, .plugin-feature p, .installed-plugin p, .runtime-card p, .environment-note p) { font-size: 12px; line-height: 1.5; color: var(--embed-muted); margin: 6px 0; }
+.embedded-workspace :is(.installed-plugin span, .project-list small, .pill) { font-size: 11px; }
+.embedded-workspace .installed-plugin { gap: 8px; padding: 8px; }
+.embedded-workspace .project-list > button { padding: 6px 8px; }
+
+/* Cylinder object sidebar. */
+.embedded-workspace .cylinder-object-sidebar { border-left: 1px solid var(--embed-border); }
+.embedded-workspace .cylinder-objects-panel { background: var(--embed-bg); color: var(--embed-text); font-size: 12px; border-color: var(--embed-border); }
+.embedded-workspace .cylinder-objects-heading { padding: 8px 12px; border-color: var(--embed-border); }
+.embedded-workspace .cylinder-objects-heading strong { font-size: 13px; }
+.embedded-workspace .cylinder-objects-heading p { margin: 2px 0 0; font-size: 12px; }
+.embedded-workspace .cylinder-objects-scroll { padding: 0 12px 8px; }
+.embedded-workspace .cylinder-objects-panel :is(p, summary, label, small, .cylinder-object-field > span, .cylinder-object-input > span) { color: var(--embed-muted); }
+.embedded-workspace .cylinder-objects-panel :is(.cylinder-global, .cylinder-object-tree, .cylinder-objects-actions) { border-color: var(--embed-border); }
+.studio.embedded-workspace .cylinder-objects-panel .cylinder-object-input input { padding: 0 24px 0 6px; }
+.embedded-workspace .cylinder-objects-panel .cylinder-object-input input[aria-invalid=true] { border-color: var(--embed-danger); background: var(--embed-bg); }
+.embedded-workspace .cylinder-objects-panel .cylinder-objects-action-row > button, .embedded-workspace .cylinder-objects-panel .cylinder-objects-empty > button { height: 26px; padding: 0 8px; font-size: 12px; line-height: 1; white-space: nowrap; overflow: hidden; background: transparent; color: var(--embed-text); border: 1px solid var(--embed-border); border-radius: var(--embed-control-radius); }
+.embedded-workspace .cylinder-objects-panel .cylinder-objects-action-row.secondary > button { border-color: transparent; color: var(--embed-muted); font-size: 12px; padding: 0 8px; }
+.embedded-workspace .cylinder-objects-panel :is(.cylinder-objects-action-row > button, .cylinder-objects-empty > button):hover:not(:disabled), .embedded-workspace .cylinder-object-list button:hover { background: var(--embed-hover); color: var(--embed-text); }
+.embedded-workspace .cylinder-objects-panel :is(.cylinder-objects-action-row, .cylinder-objects-empty) > button.cylinder-primary { background: var(--embed-primary); color: var(--embed-primary-text); border-color: transparent; }
+.embedded-workspace .cylinder-objects-panel :is(.cylinder-objects-action-row, .cylinder-objects-empty) > button.cylinder-primary:hover:not(:disabled) { background: var(--embed-primary); color: var(--embed-primary-text); opacity: .88; }
+.embedded-workspace .cylinder-object-list button { padding: 4px 8px; font-size: 12px; color: var(--embed-text); border-radius: var(--embed-control-radius); }
+.embedded-workspace .cylinder-object-list button.selected { background: var(--embed-active); color: var(--embed-text); border-color: var(--embed-border); }
+.embedded-workspace :is(.cylinder-object-job, .cylinder-objects-actions) { background: var(--embed-surface); color: var(--embed-muted); }
+.embedded-workspace .cylinder-objects-alert { padding: 8px; background: var(--embed-panel); color: var(--embed-text); border: 1px solid var(--embed-border); font-size: 12px; line-height: 1.5; }
+.embedded-workspace .cylinder-objects-alert button { color: var(--embed-text); font-size: 12px; }
+.embedded-workspace .cylinder-object-error { background: var(--embed-panel); border-color: var(--embed-danger); }
+.embedded-workspace .cylinder-object-error > summary, .embedded-workspace .cylinder-object-error p, .embedded-workspace .cylinder-object-job .cylinder-object-job-error { color: var(--embed-danger) !important; font-size: 12px; }
+.embedded-workspace .cylinder-object-marker { border-color: var(--embed-muted); }
+.embedded-workspace .cylinder-object-list button.selected .cylinder-object-marker { border-color: var(--embed-text); }
+
+/* Type floor: nothing below 11px in the embedded surface. */
+.embedded-workspace :is(.cylinder-object-badge, .cylinder-global summary > span, .cylinder-object-tree summary > span, .cylinder-object-editor-heading > span, .cylinder-object-input > span, .cylinder-object-hint, .cylinder-objects-actions > p, .cylinder-object-job > summary > span:last-child, .cylinder-object-job p, .cylinder-object-job pre, .cylinder-object-list button, .cylinder-object-field > span:first-child, .tree-more, .tree-search input, .scene-filter, .scene-inspector small, .scene-inspector code, .review-note code) { font-size: 11px; }
+
+@media (max-width: 520px) {
+  /* Sidebar width: the version list sits above the comparison instead of beside it. */
+  .embedded-workspace .history-layout { grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(96px, 34%) minmax(0, 1fr); }
+  .embedded-workspace .revision-list { border-right: 0; border-bottom: 1px solid var(--embed-border); }
+}
 @media (max-width: 620px) {
-  .studio.dsh-workspace > .model-workspace { padding: 0; }
-  .dsh-workspace .embedded-workspace-bar { padding: 0 12px; gap: 4px; }
-  .dsh-workspace .embedded-workspace-tabs { gap: 8px; }
-  .dsh-workspace .embedded-workspace-tabs button { padding: 0 2px; }
-  .dsh-workspace .embedded-file-actions { margin-left: auto; }
+  .studio.embedded-workspace > .model-workspace { padding: 0; }
+  .embedded-workspace .embedded-workspace-bar { padding: 0 12px; gap: 4px; }
+  .embedded-workspace .embedded-workspace-tabs button { padding: 0 2px; }
 }

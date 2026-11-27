@@ -5,11 +5,32 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { Store } from '../server/storage.js';
-import { prepareDshWorkspace } from '../server/dsh-workspace.js';
+import { prepareDshWorkspace, refreshDshGuides } from '../server/dsh-workspace.js';
 import { builtInSkillPaths } from '../server/builtin.js';
 import { loadSkillsFromDir } from '@earendil-works/pi-coding-agent';
 
 const resources = fileURLToPath(new URL('../resources/', import.meta.url));
+
+test('the guide points at COSERVE_CASTUDIO_URL and startup refresh rewrites the example port of prepared projects only', async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'castudio-dsh-port-'));
+  const previous = process.env.STUDIO_PORT;
+  try {
+    const store = new Store(root); await store.init();
+    const prepared = await store.createProject('Prepared'), untouched = await store.createProject('Untouched');
+    process.env.STUDIO_PORT = '41111';
+    await prepareDshWorkspace(store, prepared.id);
+    const guide = path.join(store.workspace(prepared.id), '.agents/skills/castudio/SKILL.md');
+    assert.match(await fs.readFile(guide, 'utf8'), /\$env:COSERVE_CASTUDIO_URL[\s\S]*\$COSERVE_CASTUDIO_URL[\s\S]*127\.0\.0\.1:41111/);
+    process.env.STUDIO_PORT = '42222';
+    assert.deepEqual(await refreshDshGuides(store), [prepared.id]);
+    const text = await fs.readFile(guide, 'utf8');
+    assert.match(text, /127\.0\.0\.1:42222/); assert.doesNotMatch(text, /41111/);
+    await assert.rejects(fs.access(path.join(store.workspace(untouched.id), '.agents')));
+  } finally {
+    if (previous === undefined) delete process.env.STUDIO_PORT; else process.env.STUDIO_PORT = previous;
+    await fs.rm(root, { recursive: true, force: true });
+  }
+});
 
 test('DSH gets the real project, engineering skills and preserved local instructions', async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'castudio-dsh-'));

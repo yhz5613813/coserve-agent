@@ -1,7 +1,7 @@
 {
   "name": "@deepseek-ai/dsh-castudio-context",
   "description": "Opt-in durable per-step context with the CAStudio CAD service's projects and workspace locations",
-  "version": "0.2.2-rc.1",
+  "version": "0.2.2-rc.2",
   "publishConfig": {
     "access": "public"
   },

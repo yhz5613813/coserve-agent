@@ -7,7 +7,7 @@ import { Store, jsonRead } from './storage.js';
 const resources = fileURLToPath(new URL('../resources/', import.meta.url));
 const marker = '<!-- coserve-dsh-workspace -->';
 const platformNoteMarker = '<!-- coserve-platform-note -->';
-const agentsBlock = 'This is a CoServe AI CAD project. Before CAD, parametric editing, build or simulation tasks, read .agents/skills/castudio/SKILL.md first, then the relevant bundled engineering skill (cadflow, structural-sim, thermal-sim, heatsink-optimization). Use the configured runtime and existing project services. DSH is the sole conversation and tool-execution harness.';
+const agentsBlock = 'This is a CoServe AI CAD project. Before CAD, parametric editing, build or simulation tasks, read .agents/skills/castudio/SKILL.md first, then the relevant bundled engineering skill (cadflow, structural-sim, thermal-sim, heatsink-optimization). A project may hold several parts: files of part <slug> live in parts/<slug>/, part default is the project root; the castudio skill explains how to address a part. Use the configured runtime and existing project services. DSH is the sole conversation and tool-execution harness.';
 // The bundled upstream cadflow skill documents PyPI installs for Linux/macOS;
 // they cannot run here. Windows parametric CAD instead uses the official
 // cadflow wheel CAStudio ships — native cadflow_core backend + OCCT — already
@@ -65,8 +65,8 @@ description: Use the integrated CAD project, parametric editor, model files, bui
 
 This directory is the current CAD project's source of truth. DSH owns conversation, model requests and tool execution. Use its normal file and shell tools. The local CAD service supplies geometry editing, previews, builds, history and simulation; do not call its /prompt endpoint or use its legacy Pi agent.
 
-Project API: ${api}
-Service origin: ${service}
+Service origin: the environment variable \`COSERVE_CASTUDIO_URL\` (PowerShell \`$env:COSERVE_CASTUDIO_URL\`, bash \`$COSERVE_CASTUDIO_URL\`). Its port changes when the app restarts, so build every URL from it. The URLs in this file use its value when the file was written (${service}) only as an example.
+Project API: <service origin>/api/projects/${id} (currently ${api})
 Parametric CAD Python: ${parametric.python || 'not configured; check GET /api/parametric/runtime'}
 Plain-build Python: ${runtime.executable || 'not configured; inspect GET /api/runtime'}
 Thermal Python: ${thermal.executable || 'not configured; inspect GET /api/thermal/runtime'}
@@ -94,9 +94,9 @@ Report separately: whether CAD construction and GPU solves completed; whether fe
 
 ## Automatic new solid design through Gmsh/OpenCASCADE
 
-For a new solid thermal design, or edits to an existing Gmsh Python source, use the explicit Gmsh build engine below. This path uses the installed Gmsh/OpenCASCADE geometry library from Thermal Python and supports automatic publication. It does not require the CadFlow notebook. Keep an existing CadFlow notebook on its own parametric path unless the user explicitly requests conversion. Do not change Windows application control or install substitute DLLs. State which geometry engine was used. If the requested geometry is unsupported, report that limitation rather than replacing it with a simpler shape.
+Use the explicit Gmsh build engine below for edits to an existing Gmsh Python source, when the user explicitly asks for Gmsh, or for the complete design → simulation → redesign loop above (its optimizer only redesigns Gmsh builds); other new geometry goes to a parametric notebook (next section). This path uses the installed Gmsh/OpenCASCADE geometry library from Thermal Python and supports automatic publication. It does not require the CadFlow notebook. Keep an existing CadFlow notebook on its own parametric path unless the user explicitly requests conversion. Do not change Windows application control or install substitute DLLs. State which geometry engine was used. If the requested geometry is unsupported, report that limitation rather than replacing it with a simpler shape.
 
-1. Write a Python source inside this project's workspace using \`import gmsh\`, \`gmsh.initialize(interruptible=False)\`, \`gmsh.model.occ\` solid operations, \`synchronize()\`, and \`finalize()\` in a finally block. Use millimetres consistently for CAD; thermal dimensions use metres. Create real geometry from the requested dimensions, including holes and other features. Export a STEP with \`gmsh.write('model.step')\`. STEP itself is supported by the viewer.
+1. Write a Python source inside this project's workspace using \`import gmsh\`, \`gmsh.initialize(interruptible=False)\`, \`gmsh.model.occ\` solid operations, \`synchronize()\`, and \`finalize()\` in a finally block. Use millimetres consistently for CAD; thermal dimensions use metres. Create real geometry from the requested dimensions, including holes and other features. Export a STEP with \`gmsh.write('model.step')\` only after \`gmsh.model.occ.synchronize()\`; without it gmsh writes a STEP with no geometry, and the build fails. STEP itself is supported by the viewer.
 2. Validate the actual solid count, bounding box and volume using \`getEntities(3)\`, \`getBoundingBox\`, and \`occ.getMass\`. Clear and reopen the exported STEP using \`occ.importShapes\` and recheck the measurements. Save \`geometry-check.json\` with engine, units, dimensions, measured values and checks; fail the build if they disagree. No placeholder geometry or results.
 3. Submit \`POST ${api}/builds\` with \`{source:'design.py',expectedSource:<exact saved text>,engine: 'gmsh'}\`. If a parameter sidecar exists, obtain its hash from \`GET ${api}/parameters?source=design.py\` and pass expectedParameters. This freezes the sources and uses the configured Thermal Python; the default omitted engine still uses the plain CAD interpreter.
 4. Poll \`GET ${api}/builds/<id>\` to a terminal state and inspect log/artifacts. After success, \`POST ${api}/builds/<id>/publish\` with an empty object. This verifies the artifact hashes and returns \`{path:'builds/<id>'}\`. The thermal source is that returned path plus the exported STEP filename. Do not use the source workspace's stale or unpublished STEP. Publication here needs no manual click; the notebook's separate editor-publish guard remains intact.
@@ -107,11 +107,16 @@ On Windows the shell may be cmd.exe. Use a saved Python script and the absolute 
 
 ## CadFlow notebook geometry, colour and parameter edits — parametric code API
 
-Changes to a CadFlow notebook part's geometry, dimensions, colour or material go through the project's parametric editor, which executes cadflow notebook cells. Work in this order:
+Changes to a CadFlow notebook part's geometry, dimensions, colour or material go through the project's parametric editor, which executes cadflow notebook cells.
+
+New geometry defaults to a parametric notebook so the user can adjust it in the workbench's 参数 tab; this includes converting a scripted or imported model when the user asks. Without a program, install \`{"template":"blank"}\`, or \`cylinder\` / \`plate\` when the part is that shape. Put the main dimensions in a params cell as named UPPER_CASE parameters with \`# ui: slider(...)\` comments, like the existing params cell.
+In \`blank\`, rewrite the geometry cell but keep the final solid (one connected solid) in the variable \`body\` and the product's \`part_id\` \`"castudio-part"\`; publishing exports \`body\` as STEP, which thermal simulation accepts (structural needs the cylinder template).
+
+Work in this order:
 
 1. \`GET ${service}/api/parametric/runtime\` — when \`configured\` is \`false\` the optional parametric CAD environment is not installed: tell the user and give them the install command under "Installing the CAD environment" below; do not substitute another engine.
 2. \`GET ${api}/parametric\` — reports whether the parametric notebook exists (\`exists\`) and whether its worker is running (\`running\`, \`url\`).
-3. \`POST ${api}/parametric/template\` — only when \`exists\` is \`false\`; installs the parametric cylinder template a new project starts from (201; 409 when it already exists).
+3. \`POST ${api}/parametric/template\` — only when \`exists\` is \`false\`; installs a parametric template, body \`{"template":"blank"}\` (parameters plus a box \`body\` to rewrite, STEP only), \`{"template":"cylinder"}\` (the default when the body is omitted; cylinder shell, can feed the structural solver) or \`{"template":"plate"}\` (rectangular plate with holes, STEP only) (201; 409 when it already exists).
 4. \`POST ${api}/parametric/start\` — starts the cadflow editor worker; the first start can take a minute.
 5. \`GET ${api}/parametric/agent/cells\` — lists cells with id, name and status; read the current code before editing.
 6. \`POST ${api}/parametric/agent/cells/edit\` replaces a cell's code, \`/cells/insert\` adds one, and \`/cells/run\` executes; every response returns the refreshed cell list. A cell reporting \`status\` \`exception\` with \`errors\` failed — fix the code and re-run.
@@ -122,7 +127,7 @@ Cell code rules (verified against the running editor):
 - Cells take code-mode bodies: plain statements with no \`@app.cell\` decorator and no \`def\`. A trailing \`return (name,)\` marks the cell's outputs for downstream cells.
 - Cells run inside a shared recorded graph session, so build graph-owned values with the operator forms: \`cad.make_part_rpart(part_id=..., body=...)\`, \`cad.make_material_rmaterial('id', name=..., color=(r,g,b))\` with colour components in 0..1, and \`cad.assign_material_rpart(part, material)\`. A raw \`cad.Part(...)\` constructor is not graph-owned — convert it to \`cad.make_part_rpart(...)\` (keep the same \`part_id\`) before attaching a material.
 - The environment also ships the native CadFlow backend, so \`cad.Model()\` and the other native APIs documented in the bundled \`cadflow\` skill work inside cells. For the product's returned parts/materials keep using the recorded operator forms above — native \`Model\` shapes are not graph-owned and cannot carry scene materials.
-- The template already imports \`cadflow as cad\` and \`parametric_common\`; reuse the existing cell variable names (\`tagged\`, \`cylinder\`, ...) and keep the product's \`part_id\` (\`"castudio-stiffened-cylinder"\`).
+- The cylinder template already imports \`cadflow as cad\` and \`parametric_common\`; reuse the existing cell variable names (\`tagged\`, \`cylinder\`, ...) and keep the product's \`part_id\` (\`"castudio-stiffened-cylinder"\`).
 
 Example — make the part bright blue by editing the last cell that builds \`cylinder\` (replace \`cad.Part(\` with \`cad.make_part_rpart(\` first so the part is graph-owned):
 
@@ -137,11 +142,21 @@ A viewport showing demonstration geometry is a UI sample, not project source: th
 
 ### Installing the CAD environment
 
-Parametric editing needs an optional Python environment of about 1.1 GB; install it only when the user asks. It needs network access to PyPI. Run the bundled \`setup-cad-env.mjs\` script: in a packaged install, launch \`"<CoServe AI install dir>\\resources\\castudio\\scripts\\setup-cad-env.mjs"\` with \`ELECTRON_RUN_AS_NODE=1\` through \`"CoServe AI.exe"\`; from a source checkout, run \`node scripts/setup-cad-env.mjs\` at the cadflow-studio root. The script creates the environment, installs the pinned dependencies and writes \`parametric-runtime.json\` itself; check \`GET /api/parametric/runtime\` afterwards for \`configured:true\`.
+${parametric.python ? `The CAD environment is already installed (Parametric CAD Python above). Never reinstall it or run \`setup-cad-env.mjs\`; the machine may have no network access.` : `Parametric editing needs an optional Python environment of about 1.1 GB; install it only when the user asks. It needs network access to PyPI. Run the bundled \`setup-cad-env.mjs\` script: in a packaged install, launch \`"<CoServe AI install dir>\\resources\\castudio\\scripts\\setup-cad-env.mjs"\` with \`ELECTRON_RUN_AS_NODE=1\` through \`"CoServe AI.exe"\`; from a source checkout, run \`node scripts/setup-cad-env.mjs\` at the cadflow-studio root. The script creates the environment, installs the pinned dependencies and writes \`parametric-runtime.json\` itself; check \`GET /api/parametric/runtime\` afterwards for \`configured:true\`.`}
 
 ## Inspecting and operating the workbench — view only
 
-The \`cad_workbench\` tool inspects and operates the live 3D workbench the user has open: read state, select parts or faces, move the camera, toggle visibility and display options, switch workbench tabs, and save viewport snapshots as PNG files. It changes the view only — geometry, colour, material and parameter edits go through the parametric code API above, never through the workbench tool. Agents without the tool can call the same operations over \`GET/POST ${api}/viewport/state|command\` (actions: fit, select, select_face, visible, options, workspace, snapshot); snapshot PNGs land in the project's \`artifacts/viewport/\` and are readable with \`read_image\`. \`connected:false\` means no workbench tab is open — ask the user to open the CAD workbench.
+The \`cad_workbench\` tool inspects and operates the live 3D workbench the user has open: read state, select parts or faces, move the camera, toggle visibility and display options, switch workbench tabs, open a model file or switch part, expand or collapse a workbench panel, and save viewport snapshots as PNG files. It changes the view only — geometry, colour, material and parameter edits go through the parametric code API above, never through the workbench tool. Agents without the tool can call the same operations over \`GET/POST ${api}/viewport/state|command\` (actions: fit, select, select_face, visible, options, workspace, snapshot, open, panel); snapshot PNGs land in the project's \`artifacts/viewport/\` and are readable with \`read_image\`. \`connected:false\` means no workbench tab is open — ask the user to open the CAD workbench.
+
+### Parts
+
+One CAD project holds one or more parts. Part \`default\` is the project workspace root and holds all files of a project without parts; every other part <slug> lives in \`parts/<slug>/\` under the workspace root. Read the "Project / Part" line of the CAStudio context to learn which part the viewer shows; \`state.model.path\` and every file path you read, write or open are relative to that part's folder, so work on part <slug> inside \`parts/<slug>/\`. Pass \`partSlug\` on every \`cad_workbench\` call (or \`part\` in the HTTP command body) so the command only runs while the viewer shows that part; the service answers 409 when it shows another one. Use the \`open\` action with \`path\` (relative to the part's folder) to show a model file, adding \`partSlug\` to switch to another part first. Use the \`panel\` action with \`panel\` (\`viewer\`, \`editor\`, \`files\` or \`properties\`) and \`state\` (\`expand\` or \`collapse\`) to expand or collapse a workbench panel. The tool's \`part\` argument is a mesh name or id inside the viewport, never a CAD part.
+
+- \`PATCH ${api}/parts/<slug>\` with \`{"name":"..."}\` renames a part's display name only (1–60 characters, unique; the folder and slug stay); the default part cannot be renamed.
+- \`DELETE ${api}/parts/<slug>\` moves a part's folder and record to \`.trash/\` in the projects folder (409 while an agent run is active, 400 for \`default\`); call it only when the user explicitly asks to delete a part.
+- \`GET ${api}/parts\` also reports per-part status: \`updatedAt\`, \`published\` (parametric publication or STEP present), \`structural\` / \`thermal\` (\`succeeded\` | \`failed\` | \`running\` of the latest run, absent when none).
+- Read another part's file with \`GET ${api}/parts/<slug>/file?path=<path relative to that part>\` (\`default\` = workspace root). This is read-only: write only inside the current part's folder.
+- An assembly is \`assembly.json\` at a part's folder root: \`{"version":1,"components":[{"id":"base","part":"<slug>","path":"<STEP/GLB/STL path in that part>","name":"底座","position":[x,y,z],"rotation":[rx,ry,rz],"visible":true}]}\` (mm; degrees applied X, Y, Z; \`name\`/\`visible\` optional). \`GET ${api}/assembly\` (part default) or \`${api}--<slug>/assembly\` (part <slug>) returns it with each component's file URL and a \`missing\` reason for unreadable references; \`PUT\` the same URL with \`{"etag":"<etag from GET>","assembly":{...}}\` replaces it (409 when stale or busy). Opening \`assembly.json\` in the viewer shows all components.
 
 Viewport selections inserted in the conversation are preview context. Only cadFace explicitly identifies an imported STEP face; a triangle index is a mesh index, not BREP topology. A selection marked isDemo is a UI sample. Verify the actual source and geometry before editing or analysis.
 
@@ -176,6 +191,17 @@ Keep generated files in this project. Export STEP plus GLB or STL for preview. N
     if (updated !== existing) await fs.writeFile(instructions, updated);
   }
   return { ...project, workspacePath };
+}
+
+/** Re-prepares every project whose workspace already has the castudio skill, so its example service URL names the current port. Returns the ids refreshed. */
+export async function refreshDshGuides(store: Store): Promise<string[]> {
+  const refreshed: string[] = [];
+  for (const project of await store.records()) {
+    const guide = path.join(store.workspace(project.id), '.agents', 'skills', 'castudio', 'SKILL.md');
+    if (!await fs.access(guide).then(() => true, () => false)) continue;
+    await prepareDshWorkspace(store, project.id); refreshed.push(project.id);
+  }
+  return refreshed;
 }
 
 /** Loopback-only routes used by the native DSH CAD tab; these never start Pi. */

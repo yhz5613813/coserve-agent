@@ -152,10 +152,10 @@ describe('cad_workbench state and project selection', () => {
     const result = await run(ctx, { action: 'state' })
 
     expect(result.isError).toBe(false)
-    expect(result.text).toContain('CAD workbench "Enclosure" (id project-a)')
+    expect(result.text).toContain('CAD workbench "Enclosure" (id project-a), part "default" (default)')
     expect(result.text).toContain('tab: model preview')
     expect(result.text).toContain('Model: demonstration geometry — loaded')
-    expect(result.text).toContain('Parts: 3 total, 1 hidden')
+    expect(result.text).toContain('Meshes: 3 total, 1 hidden')
     expect(result.text).toContain('Selection: "底座" (mesh-a)')
     expect(result.text).toContain('Options: ortho off, section 100%, explode 0, mode component')
     expect(result.text).toContain('Camera: position [1, 2, 3]')
@@ -237,6 +237,62 @@ describe('cad_workbench command mapping', () => {
     expect(snapshot.text).toContain('read_image')
   })
 
+  it('sends partSlug as the command part on every action and echoes the part the viewer shows', async () => {
+    const fake = await fakeCAStudio()
+    const housing = { ...VIEWPORT_STATE, part: { slug: 'housing', name: 'Housing' } }
+    fake.viewportsBody = [{ ...VIEWPORT, state: housing }]
+    fake.stateBody = { connected: true, ageMs: 5, state: housing }
+    fake.commandBody = { ok: true, state: housing }
+    const { ctx } = await mount({ url: fake.url })
+
+    const state = await run(ctx, { action: 'state', partSlug: 'housing' })
+    expect(state.text).toContain('CAD workbench "Enclosure" (id project-a), part "Housing" (housing)')
+
+    const cases: [Record<string, unknown>, Record<string, unknown>][] = [
+      [{ action: 'snapshot' }, { action: 'snapshot' }],
+      [{ action: 'fit', view: 'top' }, { action: 'fit', view: 'top' }],
+      [{ action: 'select', part: 'mesh-a' }, { action: 'select', meshId: 'mesh-a' }],
+      [{ action: 'select_face', part: 'mesh-a', face: 1 }, { action: 'select_face', meshId: 'mesh-a', face: 1 }],
+      [{ action: 'visible', part: 'mesh-a', visible: true }, { action: 'visible', meshId: 'mesh-a', visible: true }],
+      [{ action: 'options', options: { grid: false } }, { action: 'options', options: { grid: false } }],
+      [{ action: 'workspace', workspace: 'thermal' }, { action: 'workspace', workspace: 'thermal' }],
+      [{ action: 'panel', panel: 'files', state: 'collapse' }, { action: 'panel', panel: 'files', state: 'collapse' }],
+      [{ action: 'open', path: 'bracket.step' }, { action: 'open', path: 'bracket.step' }],
+    ]
+    for (const [args, command] of cases) {
+      fake.commandBody = { ok: true, state: housing, ...(args.action === 'snapshot' ? { snapshot: { path: 'a.png', absolutePath: '/w/a.png', width: 1, height: 1, bytes: 1 } } : {}) }
+      const result = await run(ctx, { ...args, partSlug: 'housing' })
+      expect(result.isError, JSON.stringify(args)).toBe(false)
+      expect(lastCommand(fake)).toEqual({ ...command, part: 'housing' })
+      expect(result.text).toContain('part "Housing" (housing)')
+    }
+  })
+
+  it('switches part with open and reports the part the viewer shows afterwards', async () => {
+    const fake = await fakeCAStudio()
+    fake.commandBody = { ok: true, state: { ...VIEWPORT_STATE, part: { slug: 'lid', name: 'Lid' } } }
+    const { ctx } = await mount({ url: fake.url })
+
+    const opened = await run(ctx, { action: 'open', path: 'lid.step', partSlug: 'lid' })
+
+    expect(opened.isError).toBe(false)
+    expect(lastCommand(fake)).toEqual({ action: 'open', path: 'lid.step', part: 'lid' })
+    expect(opened.text).toContain('part "Lid" (lid)')
+    expect(opened.text).toContain('open file applied')
+  })
+
+  it('names the part from the listed state when a command answers without state', async () => {
+    const fake = await fakeCAStudio()
+    fake.viewportsBody = [{ ...VIEWPORT, state: { ...VIEWPORT_STATE, part: { slug: 'housing', name: 'Housing' } } }]
+    fake.commandBody = { ok: true, state: null }
+    const { ctx } = await mount({ url: fake.url })
+
+    const result = await run(ctx, { action: 'panel', panel: 'viewer', state: 'expand' })
+
+    expect(result.text).toContain('part "Housing" (housing)')
+    expect(result.text).toContain('did not report a new state')
+  })
+
   it('resolves part ids and exact names before dispatching mesh commands', async () => {
     const fake = await fakeCAStudio()
     const { ctx } = await mount({ url: fake.url })
@@ -291,6 +347,9 @@ describe('cad_workbench argument and failure handling', () => {
       [{ action: 'visible', part: 'mesh-a' }, 'action "visible" requires "visible"'],
       [{ action: 'options', options: {} }, '"options" must set at least one display option'],
       [{ action: 'workspace' }, 'action "workspace" requires "workspace"'],
+      [{ action: 'open' }, 'action "open" requires "path"'],
+      [{ action: 'panel', panel: 'files' }, 'action "panel" requires "state"'],
+      [{ action: 'open', path: 'a.step', part: 'mesh-a' }, '"part" does not apply to action "open"'],
     ]
     for (const [args, message] of cases) {
       const result = await run(ctx, args)
@@ -318,6 +377,26 @@ describe('cad_workbench argument and failure handling', () => {
     const listing = await run(ctx, { action: 'state' })
     expect(listing.isError).toBe(true)
     expect(listing.text).toContain('HTTP 503')
+  })
+
+  it('explains a part mismatch when a command naming a part is refused with 409', async () => {
+    const fake = await fakeCAStudio()
+    fake.commandStatus = 409
+    fake.commandBody = { error: '视口当前显示零件 default，不是 housing；请先用 open 切换零件' }
+    const { ctx } = await mount({ url: fake.url })
+
+    const mismatch = await run(ctx, { action: 'fit', partSlug: 'housing' })
+    expect(mismatch.isError).toBe(true)
+    expect(mismatch.text).toContain('HTTP 409')
+    expect(mismatch.text).toContain('视口当前显示零件 default')
+    expect(mismatch.text).toContain('call action "open" with partSlug "housing"')
+
+    // A refused `open` is not a mismatch, and a command without partSlug names no part to explain.
+    const open = await run(ctx, { action: 'open', path: 'a.step', partSlug: 'housing' })
+    expect(open.text).toContain('HTTP 409')
+    expect(open.text).not.toContain('partSlug "housing" to switch')
+    const unnamed = await run(ctx, { action: 'fit' })
+    expect(unnamed.text).not.toContain('partSlug')
   })
 
   it('reports an unreachable service and honors caller cancellation', async () => {

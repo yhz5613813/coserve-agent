@@ -7,6 +7,7 @@ import {Events} from './events.js';
 import {runProcess} from './process.js';
 import {thermalPreviewBytes} from './thermal-preview.js';
 import {ThermalResource} from './thermal-resource.js';
+import {THERMAL_NOT_INSTALLED,thermalRuntimeFile} from './thermal.js';
 import type {ThermalCatalog,ThermalInspection,ThermalSelectionResult,ThermalSurface} from '../shared/thermal.js';
 
 const hash=(bytes:Buffer)=>createHash('sha256').update(bytes).digest('hex');
@@ -24,7 +25,11 @@ export class ThermalEditor {
     return path.join(this.store.projectRoot(project),'thermal-inspections',id);
   }
   private work(id:string){return path.join(this.store.root,'thermal-inspection-work',id);}
-  private async executable(){return (await jsonRead(path.join(this.store.root,'thermal-runtime.json'),{executable:process.env.STUDIO_THERMAL_PYTHON||'python'})).executable;}
+  private async executable(){
+    const executable=(await jsonRead<{executable?:string}|null>(thermalRuntimeFile(this.store),null))?.executable??process.env.STUDIO_THERMAL_PYTHON;
+    if(!executable)throw new HttpError(422,THERMAL_NOT_INSTALLED);
+    return executable;
+  }
   private async persist(project:string,record:ThermalInspection){
     await jsonWrite(path.join(this.directory(project,record.id),'record.json'),record);
     this.events.emit(project,'thermal_inspection_changed',{id:record.id});
@@ -39,7 +44,7 @@ export class ThermalEditor {
     return record;
   }
   async recover(){
-    for(const project of await this.store.projects()){
+    for(const project of await this.store.records()){
       const folder=path.join(this.store.projectRoot(project.id),'thermal-inspections');
       const ids=await fs.readdir(folder).catch(error=>{if(error.code==='ENOENT')return [];throw error;});
       for(const id of ids.filter(value=>/^[a-f0-9-]{36}$/.test(value))){
@@ -58,10 +63,11 @@ export class ThermalEditor {
       if(!stat.isFile()||!stat.size||stat.size>100*1024*1024)throw new HttpError(413,'模型必须为 100 MB 以内的非空文件');
       const bytes=await fs.readFile(source),sourceHash=hash(bytes);
       if(input.expectedHash&&input.expectedHash!==sourceHash)throw new HttpError(409,'模型已变化，请重新选择');
+      const executable=await this.executable();
       const record:ThermalInspection={id:randomUUID(),source:input.source,sourceHash,units:input.units as ThermalInspection['units'],state:'running',createdAt:new Date().toISOString(),log:''};
       const work=this.work(record.id);await fs.mkdir(work,{recursive:true});
       const frozen=path.join(work,'source'+path.extname(source));await fs.writeFile(frozen,bytes);await this.persist(project,record);
-      const abort=new AbortController(),executable=await this.executable();
+      const abort=new AbortController();
       const done=Promise.resolve().then(async()=>{
         try{
           const output=path.join(work,'output');

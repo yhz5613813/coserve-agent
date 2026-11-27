@@ -70,17 +70,21 @@ def validate(candidate, reference, output):
     dump(output,result)
 
 
-def build(notebook, output, reference):
+def build(notebook, output, template, params_from, reference):
     import time
     started=time.monotonic()
     print('CAStudio: loading CAD runtime',flush=True)
     from castudio_runtime.runtime.runner import run_notebook
     from castudio_runtime.runtime.config import read_notebook_config
-    from castudio_runtime.runtime.params import read_saved_params
+    from castudio_runtime.runtime.params import read_saved_params, list_parameters
     from castudio_runtime.product.packages import build_product_package, encode_product_package
     out = Path(output); out.mkdir(parents=True, exist_ok=True)
     print('CAStudio: executing notebook (cell cache disabled in stage 1)',flush=True)
-    overrides=read_saved_params(read_notebook_config(Path(notebook)))
+    # The editor keeps its saved slider values under the original notebook's path; the frozen copy has a different path.
+    saved=read_saved_params(read_notebook_config(Path(params_from)))
+    # An overridden cell does not run, so a slider saved for one variable carries the cell's other parameters at their source values.
+    specs=list_parameters(notebook); touched={s.cell for s in specs if s.name in saved}
+    overrides={**{s.name:s.default for s in specs if s.cell in touched}, **saved}
     dump(out/'effective-parameters.json',overrides)
     run = run_notebook(Path(notebook),overrides=overrides)
     run_seconds=time.monotonic()-started
@@ -89,11 +93,13 @@ def build(notebook, output, reference):
     package=build_product_package(run.product)
     print('CAStudio: encoding scene package',flush=True)
     payload = encode_product_package(package)
-    (out/"cylinder.scadpkg").write_bytes(payload)
-    sys.path.insert(0, str(Path(notebook).parent))
-    from parametric_common import boundaries, area
+    (out/f"{template}.scadpkg").write_bytes(payload)
     import cadflow as cad
     v = run.values
+    if template != 'cylinder':
+        return build_solid(template, cad, v, run, out, notebook, overrides, started, run_seconds)
+    sys.path.insert(0, str(Path(notebook).parent))
+    from parametric_common import boundaries, area
     print("CAStudio: writing STEP",flush=True)
     cad.export_step(v["tagged"], str(out/"cylinder.step"))
     print("CAStudio: writing STL",flush=True)
@@ -115,7 +121,38 @@ def build(notebook, output, reference):
     print("CASTUDIO_RESULT="+json.dumps(record, ensure_ascii=True), flush=True)
 
 
-def serve(workspace, port, parent):
+def build_solid(template, cad, v, run, out, notebook, overrides, started, run_seconds):
+    """Templates without shell-model boundaries (plate, blank): the notebook's `body` is published as STEP, STL and a build record, after a validity and single-solid check."""
+    import time
+    from OCP.BRepCheck import BRepCheck_Analyzer
+    from OCP.TopAbs import TopAbs_SOLID
+    from OCP.TopExp import TopExp_Explorer
+    step = out/f"{template}.step"
+    print("CAStudio: writing STEP",flush=True)
+    cad.export_step(v["body"], str(step))
+    print("CAStudio: writing STL",flush=True)
+    cad.export_stl(v["body"], str(out/f"{template}.stl"))
+    print(f'CAStudio: checking exported {template}',flush=True)
+    shape = read_step(step)
+    if not BRepCheck_Analyzer(shape).IsValid():
+        raise ValueError("Invalid exported CAD")
+    it = TopExp_Explorer(shape, TopAbs_SOLID); solids = 0
+    while it.More():
+        solids += 1; it.Next()
+    if solids != 1:
+        raise ValueError(f"{template} body must be one connected CAD solid")
+    record = dict(schema_version=1, template=template, engine="cadflow 0.2.0",
+        source_sha256=hashlib.sha256(step.read_bytes()).hexdigest(),
+        notebook_sha256=hashlib.sha256(Path(notebook).read_bytes()).hexdigest(),
+        parameters={k: x for k,x in v.items() if k.isupper() and isinstance(x,(int,float,bool))},
+        volume_mm3=volume(shape), parameter_overrides=overrides,
+        cells=[dict(key=c.key, name=c.name, status=c.status) for c in run.cells],
+        timings={"notebook_seconds":run_seconds,"total_seconds":time.monotonic()-started})
+    dump(out/f"{template}.build.json", record)
+    print("CASTUDIO_RESULT="+json.dumps(record, ensure_ascii=True), flush=True)
+
+
+def serve(workspace, port, parent, entry):
     print('CAStudio: loading parametric CAD editor runtime',flush=True)
     # The migrated editor lives inside CAStudio; reject cross-site HTTP/WS writes.
     from castudio_runtime.editor import server
@@ -142,8 +179,8 @@ def serve(workspace, port, parent):
         from castudio_runtime.runtime.params import read_saved_params
         async def settled(request):
             expected = await request.json()
-            if expected.get('notebook') != 'cylinder.py' or not state.notebook or state.notebook.name != 'cylinder.py':
-                return JSONResponse({'ready': False, 'error': '请切回 cylinder.py 后发布圆柱'}, status_code=409)
+            if expected.get('notebook') != entry or not state.notebook or state.notebook.name != entry:
+                return JSONResponse({'ready': False, 'error': f'请切回 {entry} 后发布'}, status_code=409)
             current = {c['id']: c for c in state.cells}
             checks = [current.get(c['id'], {}).get('code', '').strip() == c['code'].strip() for c in expected.get('cells', [])]
             values = state.snapshot()['parameters']
@@ -160,15 +197,15 @@ def serve(workspace, port, parent):
         return LocalOnly(app)
     server.create_app = create_app
     return server.serve_workspace(Path(workspace), host="127.0.0.1", port=port, open_browser=False,
-                                  notebook=Path(workspace)/"cylinder.py")
+                                  notebook=Path(workspace)/entry)
 
 
 if __name__ == '__main__':
     p=argparse.ArgumentParser();sub=p.add_subparsers(dest='op',required=True)
-    s=sub.add_parser('serve');s.add_argument('workspace');s.add_argument('port',type=int);s.add_argument('parent')
-    b=sub.add_parser('build');b.add_argument('notebook');b.add_argument('output');b.add_argument('reference')
+    s=sub.add_parser('serve');s.add_argument('workspace');s.add_argument('port',type=int);s.add_argument('parent');s.add_argument('entry')
+    b=sub.add_parser('build');b.add_argument('notebook');b.add_argument('output');b.add_argument('template',choices=['cylinder','plate','blank']);b.add_argument('params_from');b.add_argument('--reference')
     v=sub.add_parser('validate');v.add_argument('candidate');v.add_argument('reference');v.add_argument('output')
     a=p.parse_args()
-    if a.op=='serve': serve(a.workspace,a.port,a.parent)
-    elif a.op=='build': build(a.notebook,a.output,a.reference)
+    if a.op=='serve': serve(a.workspace,a.port,a.parent,a.entry)
+    elif a.op=='build': build(a.notebook,a.output,a.template,a.params_from,a.reference)
     else: validate(a.candidate,a.reference,a.output)

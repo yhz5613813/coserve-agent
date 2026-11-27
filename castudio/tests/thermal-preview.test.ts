@@ -56,6 +56,7 @@ test('a design turn can queue a thermal run and cancel without releasing another
   let release:(()=>void)|undefined;
   try{
     const file=path.join(store.workspace(project.id),'test.step');await fs.writeFile(file,'frozen test input');
+    await jsonWrite(path.join(root,'thermal-runtime.json'),{executable:'python'});
     release=store.acquire(project.id);
     const run=await thermal.start(project.id,{source:'test.step',units:'mm',config:{}},true);
     assert.equal(run.state,'queued');

@@ -293,8 +293,9 @@ export function ProviderEditor(props: ProviderEditorProps): ReactNode {
       && fallback === undefined
       && committedOriginal === undefined
       && Object.keys(next).length === 0
+    // A credential-only card edits the key and the endpoint, so its ops carry at most the endpoint.
     const ops: SettingsPathOpView[] = props.credentialOnly === true
-      ? []
+      ? pathOps(settingsPath, committedOriginal, next).filter(op => op.path.at(-1) === 'baseURL')
       : materializesNativeProfile
         ? [{ op: 'set', path: [...settingsPath], value: {} }]
         : pathOps(settingsPath, committedOriginal, next)
@@ -414,6 +415,27 @@ export function ProviderEditor(props: ProviderEditorProps): ReactNode {
       },
       onReset: () => { setDraft(current => schema.deletePath(current, ['models'])) },
     }
+    const endpointField = (
+      <div className={styles['field']}>
+        <span className={styles['fieldLabel']}>{t('baseUrl')}</span>
+        <input
+          className={styles['input']}
+          type="text"
+          value={stringAt(draft, 'baseURL') ?? ''}
+          placeholder={family === 'deepseek'
+            ? t('deepSeekBaseUrl')
+            : baseURL === undefined ? t(endpointEnv.length > 0 ? 'baseUrlConfigured' : 'baseUrlDefault')
+              : t('baseUrlPlaceholder').replace('{url}', () => baseURL)}
+          aria-describedby={endpointHint === undefined ? undefined : `${props.provider}-endpoint-hint`}
+          aria-label={t('baseUrl')}
+          disabled={disabled}
+          onChange={(event) => {
+            setField('baseURL', event.target.value === '' ? undefined : event.target.value)
+          }}
+        />
+        {endpointHint === undefined ? null : <span id={`${props.provider}-endpoint-hint`} className={styles['advancedHint']}>{endpointHint}</span>}
+      </div>
+    )
     return (
       <>
         {keylessNativeAuth
@@ -438,7 +460,8 @@ export function ProviderEditor(props: ProviderEditorProps): ReactNode {
             {credentialHint === undefined ? null : <p id={`${props.provider}-credential-hint`} className={styles[missingRefs ? 'notice' : detectedRef === undefined ? 'advancedHint' : 'savedNotice']}>{credentialHint}</p>}
             {shownKeyFailure === undefined ? null : <p className={styles['error']}>{t(shownKeyFailure)}</p>}
           </div>}
-        {props.credentialOnly === true ? null : <details className={styles['customized']}>
+        {/* First-run setup also asks for the endpoint: intranet deployments reach the model through their own gateway. */}
+        {props.credentialOnly === true ? endpointField : <details className={styles['customized']}>
           <summary className={styles['customizedSummary']}>{t('customized')}</summary>
           <div className={styles['customizedBody']}>
             {/* The name and the protocol are the create card's two remaining
@@ -468,25 +491,7 @@ export function ProviderEditor(props: ProviderEditorProps): ReactNode {
                 </div>
               )
               : null}
-            <div className={styles['field']}>
-              <span className={styles['fieldLabel']}>{t('baseUrl')}</span>
-              <input
-                className={styles['input']}
-                type="text"
-                value={stringAt(draft, 'baseURL') ?? ''}
-                placeholder={family === 'deepseek'
-                  ? t('deepSeekBaseUrl')
-                  : baseURL === undefined ? t(endpointEnv.length > 0 ? 'baseUrlConfigured' : 'baseUrlDefault')
-                    : t('baseUrlPlaceholder').replace('{url}', () => baseURL)}
-                aria-describedby={endpointHint === undefined ? undefined : `${props.provider}-endpoint-hint`}
-                aria-label={t('baseUrl')}
-                disabled={disabled}
-                onChange={(event) => {
-                  setField('baseURL', event.target.value === '' ? undefined : event.target.value)
-                }}
-              />
-              {endpointHint === undefined ? null : <span id={`${props.provider}-endpoint-hint`} className={styles['advancedHint']}>{endpointHint}</span>}
-            </div>
+            {endpointField}
             {/* The protocol sits beside the endpoint it describes, as it does
                 on the create card. */}
             {ownsIdentity

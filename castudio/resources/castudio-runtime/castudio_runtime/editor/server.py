@@ -108,6 +108,8 @@ class WorkspaceState:
         self.workspace = workspace.expanduser().resolve()
         self.hub = WsHub()
         self.kernel: MarimoKernel | None = None
+        # Why the last kernel boot failed; cleared when a boot starts (see kernel_state).
+        self.kernel_error: str | None = None
         self.notebook: Path | None = pick_notebook(self.workspace, notebook)
         self.port = 0
         self.lock = threading.Lock()
@@ -250,6 +252,7 @@ class WorkspaceState:
             if self._superseded(generation):
                 return
             self._booting = kernel
+            self.kernel_error = None
         try:
             kernel.start()
             with self.lock:
@@ -276,10 +279,11 @@ class WorkspaceState:
             if self._superseded(generation):
                 return
             self.settle()
-        except Exception:
+        except Exception as exc:
             kernel.stop()
             if self._superseded(generation):
                 return  # its kernel was stopped under it; not an error
+            self.kernel_error = str(exc) or type(exc).__name__
             raise
         threading.Thread(
             target=self._watch_files, args=(kernel,), name="file-watch", daemon=True
@@ -1746,12 +1750,17 @@ def create_app(state: WorkspaceState) -> Starlette:
     hub = state.hub
 
     async def health(request: Request) -> JSONResponse:
+        # kernel_state: "ready" (a live kernel), "failed" (the last boot raised;
+        # kernel_error says why) or "starting" (booting or restarting).
+        alive = state.kernel is not None and state.kernel.alive
         return JSONResponse(
             {
                 "ok": True,
                 "workspace": str(state.workspace),
                 "notebook": state.notebook.name if state.notebook else None,
-                "kernel": state.kernel is not None and state.kernel.alive,
+                "kernel": alive,
+                "kernel_state": "ready" if alive else "failed" if state.kernel_error else "starting",
+                "kernel_error": None if alive else state.kernel_error,
             }
         )
 
@@ -2001,6 +2010,7 @@ def serve_workspace(
         threading.Thread(target=state._watch_workspace, name="workspace-watch", daemon=True).start()
 
         if state.notebook is None:
+            state.kernel_error = "no CAStudio notebook in the workspace"
             print("[sca edit] no CAStudio notebook found in the workspace", file=sys.stderr)
             hub.broadcast({"type": "status", "error": "no CAStudio notebook in the workspace; create one"})
         else:
@@ -2009,6 +2019,7 @@ def serve_workspace(
                     assert state.notebook is not None
                     state.start_kernel(state.notebook)
                 except Exception as exc:
+                    state.kernel_error = str(exc) or type(exc).__name__
                     print(f"[sca edit] kernel boot failed: {exc}", file=sys.stderr)
                     hub.broadcast({"type": "status", "error": f"kernel boot failed: {exc}"})
                     return

@@ -12,7 +12,7 @@ import { syncWindowsAppearance } from './preload-windows.ts'
 import { installMandatoryUpdateOverlay } from './preload-mandatory-overlay.ts'
 import { createDesktopBrowserBridge } from './preload-browser.ts'
 import type { FileDragHandle } from '@deepseek-ai/dsh-util-file-drag'
-import { CASTUDIO_IPC, type CAStudioEventMessage } from './castudio-protocol.ts'
+import { CASTUDIO_IPC, type CAStudioEventMessage, type CAStudioServiceStatus } from './castudio-protocol.ts'
 
 function createProductApi(): DshDesktopProductApi {
   return {
@@ -98,6 +98,16 @@ if (location.protocol === `${SCHEME}:` && location.hostname === 'app') {
       const receive = (_event: Electron.IpcRendererEvent, message: CAStudioEventMessage): void => { listener(message) }
       ipcRenderer.on(CASTUDIO_IPC.event, receive)
       return () => { ipcRenderer.off(CASTUDIO_IPC.event, receive) }
+    },
+    // Status changes reach this window after its first `status()` call.
+    service: {
+      status: () => ipcRenderer.invoke(CASTUDIO_IPC.status) as Promise<CAStudioServiceStatus>,
+      restart: () => ipcRenderer.invoke(CASTUDIO_IPC.restart) as Promise<void>,
+      onStatus: (listener: (status: CAStudioServiceStatus) => void) => {
+        const receive = (_event: Electron.IpcRendererEvent, status: CAStudioServiceStatus): void => { listener(status) }
+        ipcRenderer.on(CASTUDIO_IPC.statusChanged, receive)
+        return () => { ipcRenderer.off(CASTUDIO_IPC.statusChanged, receive) }
+      },
     },
   })
   contextBridge.exposeInMainWorld('dshOnboarding', {

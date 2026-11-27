@@ -138,6 +138,11 @@ export interface CAStudioViewportState {
   selection: CAStudioViewportSelection | null
   options: CAStudioViewportOptions
   camera: CAStudioViewportCamera | null
+  /**
+   * The CAD part the viewer shows; `model.path` is relative to that part's folder.
+   * Absent from pages that predate parts, which show part `default`.
+   */
+  part?: { slug: string; name: string }
 }
 
 /** One row of `GET /api/dsh/viewports`: a project whose workbench viewport is currently live. */
@@ -310,6 +315,11 @@ export function parseCAStudioViewportState(body: unknown): CAStudioViewportState
   if (raw.selection !== null && (typeof raw.selection !== 'object' || raw.selection === undefined)) return undefined
   if (typeof raw.options !== 'object' || raw.options === null) return undefined
   if (raw.camera !== null && raw.camera !== undefined && typeof raw.camera !== 'object') return undefined
+  if (raw.part !== undefined) {
+    if (typeof raw.part !== 'object' || raw.part === null) return undefined
+    const { slug, name } = raw.part as Record<string, unknown>
+    if (typeof slug !== 'string' || typeof name !== 'string') return undefined
+  }
   return body as CAStudioViewportState
 }
 
@@ -470,10 +480,13 @@ function renderViewOptions(options: CAStudioViewportState['options']): string | 
 function renderViewport(viewport: CAStudioConnectedViewport): string {
   const { state } = viewport
   const hidden = state.meshes.filter(mesh => mesh.visible === false).length
+  const part = state.part ?? { slug: 'default', name: 'default' }
+  const files = part.slug === 'default' ? 'the workspace root' : `parts/${part.slug}/ under the workspace root`
   const lines = [
     `- "${viewport.name}" — id ${viewport.id}, instance ${viewport.client.slice(0, 8)}, tab: ${WORKSPACE_LABELS[state.workspace] ?? state.workspace}`,
+    `  Project / Part: "${viewport.name}" / "${part.name}" (${part.slug}) — part files are in ${files}; model paths are relative to it`,
     `  Model: ${renderModel(state.model)}`,
-    `  Parts: ${state.meshes.length} total${hidden > 0 ? `, ${hidden} hidden` : ''}`,
+    `  Meshes: ${state.meshes.length} total${hidden > 0 ? `, ${hidden} hidden` : ''}`,
     `  Selection: ${renderSelection(state.selection)}`,
   ]
   const view = renderViewOptions(state.options)
@@ -482,9 +495,13 @@ function renderViewport(viewport: CAStudioConnectedViewport): string {
   return lines.join('\n')
 }
 
-/** Absolute path of a project's castudio skill guide inside its prepared workspace. */
+/**
+ * Absolute path of a project's castudio skill guide inside its prepared workspace, joined with the
+ * workspace path's own separator: backslash for a path with backslashes and no forward slash, else forward slash.
+ */
 function skillGuidePath(workspacePath: string): string {
-  return `${workspacePath.replace(/[\\/]+$/, '')}\\.agents\\skills\\castudio\\SKILL.md`
+  const separator = workspacePath.includes('\\') && !workspacePath.includes('/') ? '\\' : '/'
+  return [workspacePath.replace(/[\\/]+$/, ''), '.agents', 'skills', 'castudio', 'SKILL.md'].join(separator)
 }
 
 /**

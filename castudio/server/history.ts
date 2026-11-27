@@ -2,7 +2,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
 import type { FileChange, Revision, RevisionComparison, RevisionFileDiff, RevisionKind } from '../shared/types.js';
-import { HttpError, jsonRead, jsonWrite, safePath, Store } from './storage.js';
+import { foreignTopLevel, HttpError, jsonRead, jsonWrite, safePath, Store } from './storage.js';
 
 type Entry = { path: string; hash: string; size: number };
 type Snapshot = Revision & { entries: Entry[] };
@@ -21,12 +21,13 @@ export class History {
   }
   private async scan(id: string, save: boolean): Promise<Entry[]> {
     await this.store.project(id);
-    const root = this.store.workspace(id), entries: Entry[] = []; let total = 0;
+    const root = this.store.workspace(id), skipTop = foreignTopLevel(id), entries: Entry[] = []; let total = 0;
     if (save) await fs.mkdir(path.join(this.root(id), 'blobs'), { recursive: true });
     const visit = async (dir: string, depth: number) => {
       if (depth > 32) throw new HttpError(413, '项目目录过深，无法完整记录历史');
       for (const entry of await fs.readdir(dir, { withFileTypes: true })) {
-        if (entry.name.startsWith('.') || ignored.has(entry.name)) continue;
+        // A root project's `parts/` holds other parts' files, which have their own history.
+        if (entry.name.startsWith('.') || ignored.has(entry.name) || (depth === 0 && skipTop.has(entry.name))) continue;
         const file = path.join(dir, entry.name);
         if (entry.isSymbolicLink()) throw new HttpError(409, '请移除项目中的符号链接后再记录历史');
         if (entry.isDirectory()) { await visit(file, depth + 1); continue; }

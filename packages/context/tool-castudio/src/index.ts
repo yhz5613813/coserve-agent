@@ -4,7 +4,9 @@
  * (`GET /api/dsh/viewports`), resolves the target project, resolves part names
  * against the freshly reported mesh list, and dispatches the matching
  * whitelist command (`POST /api/projects/:id/viewport/command`) or reads the
- * viewport state (`GET /api/projects/:id/viewport/state`). It only ever talks
+ * viewport state (`GET /api/projects/:id/viewport/state`). Every command may
+ * carry `partSlug`, sent as the command's `part`, and every result names the
+ * part the viewer shows. It only ever talks
  * to the loopback CAStudio service and changes view state; the only file it
  * can produce is the viewport PNG the service itself writes for `snapshot`.
  *
@@ -65,20 +67,22 @@ const MAX_PART_ROWS = 200
 /** Cap on part candidates named in resolution errors. */
 const MAX_PART_CANDIDATES = 20
 
-type Action = 'state' | 'snapshot' | 'fit' | 'select' | 'select_face' | 'visible' | 'options' | 'workspace'
+type Action = 'state' | 'snapshot' | 'fit' | 'select' | 'select_face' | 'visible' | 'options' | 'workspace' | 'open' | 'panel'
 
-const ACTIONS = ['state', 'snapshot', 'fit', 'select', 'select_face', 'visible', 'options', 'workspace'] as const
+const ACTIONS = ['state', 'snapshot', 'fit', 'select', 'select_face', 'visible', 'options', 'workspace', 'open', 'panel'] as const
 
 /** Fields each action accepts; anything else is rejected before any request. */
 const ACTION_FIELDS: Record<Action, ReadonlySet<string>> = {
-  state: new Set(['action', 'project']),
-  snapshot: new Set(['action', 'project']),
-  fit: new Set(['action', 'project', 'view']),
-  select: new Set(['action', 'project', 'part']),
-  select_face: new Set(['action', 'project', 'part', 'face']),
-  visible: new Set(['action', 'project', 'part', 'visible']),
-  options: new Set(['action', 'project', 'options']),
-  workspace: new Set(['action', 'project', 'workspace']),
+  state: new Set(['action', 'project', 'partSlug']),
+  snapshot: new Set(['action', 'project', 'partSlug']),
+  fit: new Set(['action', 'project', 'partSlug', 'view']),
+  select: new Set(['action', 'project', 'partSlug', 'part']),
+  select_face: new Set(['action', 'project', 'partSlug', 'part', 'face']),
+  visible: new Set(['action', 'project', 'partSlug', 'part', 'visible']),
+  options: new Set(['action', 'project', 'partSlug', 'options']),
+  workspace: new Set(['action', 'project', 'partSlug', 'workspace']),
+  open: new Set(['action', 'project', 'partSlug', 'path']),
+  panel: new Set(['action', 'project', 'partSlug', 'panel', 'state']),
 }
 
 /** Fields each action requires beyond `action` itself. */
@@ -91,6 +95,8 @@ const ACTION_REQUIRED: Record<Action, readonly string[]> = {
   visible: ['part', 'visible'],
   options: ['options'],
   workspace: ['workspace'],
+  open: ['path'],
+  panel: ['panel', 'state'],
 }
 
 /** Short human titles for pending cards, keyed by action. */
@@ -103,6 +109,8 @@ const ACTION_TITLES: Record<Action, string> = {
   visible: 'set visibility',
   options: 'display options',
   workspace: 'switch workspace',
+  open: 'open file',
+  panel: 'panel',
 }
 
 /** Plain-language workbench tab names, mirroring the context reading. */
@@ -286,8 +294,15 @@ interface ProjectedState {
   camera: ProjectedCamera | null
 }
 
+/** The CAD part (`default` or a `parts/<slug>/` folder) the viewer shows. */
+interface PartInfo {
+  slug: string
+  name: string
+}
+
 interface ToolOutput {
   project: ProjectInfo
+  part: PartInfo
   action: string
   state?: ProjectedState
   snapshot?: SnapshotInfo
@@ -340,7 +355,10 @@ async function postCommand(
       && typeof (body as Record<string, unknown>).error === 'string'
       ? ` ${String((body as Record<string, unknown>).error)}`
       : ''
-    throw new Error(`cad_workbench: the CAD workbench rejected the command (HTTP ${response.status}).${detail}`)
+    const mismatch = response.status === 409 && typeof command.part === 'string' && command.action !== 'open'
+      ? ` If the viewer shows a different part than "${command.part}", call action "open" with partSlug "${command.part}" to switch to it, or read the part it shows with action "state".`
+      : ''
+    throw new Error(`cad_workbench: the CAD workbench rejected the command (HTTP ${response.status}).${detail}${mismatch}`)
   }
   if (typeof body !== 'object' || body === null) {
     throw new Error('cad_workbench: the CAD workbench command response has an unexpected shape')
@@ -422,6 +440,11 @@ function resolvePart(meshes: readonly CAStudioViewportMesh[], part: string): str
   )
 }
 
+/** The part a reported state shows; a page that predates parts shows the project root, part `default`. */
+function shownPart(state: CAStudioViewportState): PartInfo {
+  return state.part === undefined ? { slug: 'default', name: 'default' } : { slug: state.part.slug, name: state.part.name }
+}
+
 /** Project one reported state into the bounded canonical output shape. */
 function projectState(state: CAStudioViewportState): ProjectedState {
   const meshes = state.meshes.filter(
@@ -476,10 +499,11 @@ function projectState(state: CAStudioViewportState): ProjectedState {
 function renderText(
   action: Action,
   project: ProjectInfo,
+  part: PartInfo,
   state: ProjectedState | undefined,
   snapshot: SnapshotInfo | undefined,
 ): string {
-  const header = `CAD workbench "${project.name}" (id ${project.id})`
+  const header = `CAD workbench "${project.name}" (id ${project.id}), part "${part.name}" (${part.slug})`
   if (action === 'snapshot' && snapshot !== undefined) {
     return `${header}: viewport snapshot saved.\n`
       + `File: ${snapshot.absolutePath} (workspace-relative path: ${snapshot.path}; ${snapshot.width}×${snapshot.height}, ${snapshot.bytes} bytes).\n`
@@ -497,7 +521,7 @@ function renderText(
     : selection.name === '' ? `part id ${selection.meshId}` : `"${selection.name}" (${selection.meshId})`
   const lines = [
     `Model: ${subject} — ${status}`,
-    `Parts: ${state.totalParts} total, ${state.hiddenParts} hidden (listing up to ${MAX_PART_ROWS})`,
+    `Meshes: ${state.totalParts} total, ${state.hiddenParts} hidden (listing up to ${MAX_PART_ROWS})`,
     `Selection: ${selectionText}`,
     `Options: ortho ${state.options.ortho ? 'on' : 'off'}, section ${state.options.section}%, explode ${state.options.explode}, mode ${state.options.mode}`,
   ]
@@ -529,10 +553,15 @@ function buildCommand(
     visible?: boolean
     options?: OptionsInput
     workspace?: CAStudioViewportState['workspace']
+    path?: string
+    panel?: 'viewer' | 'editor' | 'files' | 'properties'
+    state?: 'expand' | 'collapse'
   },
   meshId: string | undefined,
 ): Record<string, unknown> {
   switch (action) {
+    case 'open': return { action: 'open', path: args.path }
+    case 'panel': return { action: 'panel', panel: args.panel, state: args.state }
     case 'snapshot': return { action: 'snapshot' }
     case 'fit': return args.view === undefined ? { action: 'fit' } : { action: 'fit', view: args.view }
     case 'select': return { action: 'select', meshId: meshId ?? null }
@@ -562,7 +591,12 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
       + 'Actions: state (read the viewport state), snapshot (save a PNG of the viewport), '
       + 'fit (frame the model from iso/top/front/right), select and select_face (pick a part by id or exact name, '
       + 'or a CAD face), visible (show or hide a part), options (edges, grid, ortho, section, explode, selection mode), '
-      + 'and workspace (switch the model/parametric/structural/thermal tab). '
+      + 'workspace (switch the model/parametric/structural/thermal tab), '
+      + 'open (open a model file in the viewer, optionally switching to another part), '
+      + 'and panel (expand or collapse the viewer, editor, files, or properties panel). '
+      + 'A CAD project holds parts: part "default" is the workspace root and every other part lives in parts/<slug>/. '
+      + 'Pass "partSlug" (from the "Project / Part" line of the CAStudio context) so a command only runs while the viewer shows that part; '
+      + 'the service refuses it when the viewer shows a different part. Every result names the part the viewer shows. '
       + 'It only inspects and operates the view; geometry, colour and material edits go through the '
       + 'parametric code API described in the castudio skill. '
       + 'When several workbenches are open, pass "project" with the workbench id from the CAStudio context.',
@@ -582,9 +616,30 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
         enum: ['iso', 'top', 'front', 'right'],
         description: 'fit only: camera direction to frame the model from.',
       },
+      partSlug: {
+        type: 'string',
+        description:
+          'CAD part slug: "default" or a lowercase hyphenated slug of a folder under parts/. '
+          + 'open: the part to switch to. Any other command action: the part you expect the viewer to show; '
+          + 'the command is refused when the viewer shows another part. state ignores it and reports the part shown.',
+      },
+      path: {
+        type: 'string',
+        description: 'open only: model file path relative to the target part\'s workspace (the workspace root for part "default", parts/<slug>/ otherwise).',
+      },
+      panel: {
+        type: 'string',
+        enum: ['viewer', 'editor', 'files', 'properties'],
+        description: 'panel action only: the workbench panel to expand or collapse.',
+      },
+      state: {
+        type: 'string',
+        enum: ['expand', 'collapse'],
+        description: 'panel action only: expand or collapse the panel.',
+      },
       part: {
         type: 'string',
-        description: 'select, select_face, and visible: a part id or an exact part name from the reported state.',
+        description: 'select, select_face, and visible: a mesh (viewport object) id or an exact mesh name from the reported state. It is not a CAD part; use partSlug for that.',
       },
       face: {
         type: 'integer',
@@ -624,6 +679,15 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
             required: true,
             properties: {
               id: { type: 'string', required: true },
+              name: { type: 'string', required: true },
+            },
+          },
+          part: {
+            type: 'object',
+            additionalProperties: false,
+            required: true,
+            properties: {
+              slug: { type: 'string', required: true },
               name: { type: 'string', required: true },
             },
           },
@@ -718,9 +782,9 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
       },
       render: (args, value) => [{
         type: 'text',
-        text: renderText(args.action, value.project, value.state, value.snapshot),
+        text: renderText(args.action, value.project, value.part, value.state, value.snapshot),
       }],
-      presentationMeta: (_args, value) => ({ project: value.project, action: value.action }),
+      presentationMeta: (_args, value) => ({ project: value.project, part: value.part, action: value.action }),
     },
     execute: async (args, exec) => {
       const action = args.action
@@ -768,6 +832,7 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
         }
         const output: ToolOutput = {
           project: { id: viewport.id, name: viewport.name },
+          part: shownPart(report.state),
           action,
           state: projectState(report.state),
         }
@@ -786,10 +851,11 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
         meshId = resolvePart(report.state.meshes, args.part as string)
       }
 
-      const command = buildCommand(action, args, meshId)
+      const command = { ...buildCommand(action, args, meshId), ...(args.partSlug === undefined ? {} : { part: args.partSlug }) }
       const result = await postCommand(origin, viewport, command, commandTimeoutMs, exec.signal)
       const output: ToolOutput = {
         project: { id: viewport.id, name: viewport.name },
+        part: shownPart(result.state ?? viewport.state),
         action,
         ...(result.state === null ? {} : { state: projectState(result.state) }),
         ...(result.snapshot === undefined ? {} : { snapshot: result.snapshot }),
